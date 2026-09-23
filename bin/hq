@@ -100,6 +100,9 @@ split() { # pane direction cwd -> new pane id
   herdr pane split "$1" --direction "$2" --cwd "$3" --no-focus | jq -r '.result.pane.pane_id'
 }
 
+# Pane borders show the label, so you can tell the agents apart.
+label() { herdr pane rename "$1" "$2" >/dev/null; } # pane text
+
 new_workspace() { # dir label -> "ws_id root_pane first_tab"
   local out
   out=$(herdr workspace create --cwd "$1" --label "$2" --no-focus)
@@ -190,19 +193,21 @@ team_names_free() { # label
 }
 
 layout_code() { # dir label
-  local dir=$1 label=$2 name ws root tab right below_left below_right shell
+  local dir=$1 label=$2 name ws root tab right below_left below_right shell tool
   name=$(slug "$label")
   read -r ws root tab < <(new_workspace "$dir" "$label")
   herdr tab rename "$tab" agents >/dev/null
   right=$(split "$root" right "$dir")
   below_left=$(split "$root" down "$dir")
   below_right=$(split "$right" down "$dir")
-  start_agent "${name}-claude" claude "$root"
-  start_agent "${name}-omp" omp "$right"
-  start_agent "${name}-copilot" copilot "$below_left"
-  start_agent "${name}-cursor" cursor "$below_right"
+  local -A pane=([claude]=$root [omp]=$right [copilot]=$below_left [cursor]=$below_right)
+  for tool in claude omp copilot cursor; do
+    label "${pane[$tool]}" "$tool"
+    start_agent "${name}-$tool" "$tool" "${pane[$tool]}"
+  done
   shell=$(new_tab "$ws" "$dir" shell)
-  split "$shell" down "$dir" >/dev/null
+  label "$shell" shell
+  label "$(split "$shell" down "$dir")" shell
   herdr workspace focus "$ws" >/dev/null
 }
 
@@ -211,9 +216,11 @@ layout_docs() { # dir label
   name=$(slug "$label")
   read -r ws root tab < <(new_workspace "$dir" "$label")
   herdr tab rename "$tab" write >/dev/null
-  split "$root" right "$dir" >/dev/null   # shell for vim / previews / git
+  label "$(split "$root" right "$dir")" shell   # vim / previews / git
+  label "$root" "writer · claude"
   start_agent "${name}-writer" claude "$root"
   review=$(new_tab "$ws" "$dir" review)
+  label "$review" "review · omp"
   start_agent "${name}-review" omp "$review"
   herdr workspace focus "$ws" >/dev/null
 }
