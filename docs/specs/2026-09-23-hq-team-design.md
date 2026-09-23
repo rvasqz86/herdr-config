@@ -183,3 +183,31 @@ the layout, starts agents with the right flags, and sends first prompts.
    ISO time, with a test" (~2 tasks). The human answers Gate 1 and Gate 2; Gate 2
    stops at `ship` without a PR (no remote).
 3. Fault test: kill the dev server mid-task → runtime finding blocks PASS.
+
+## Verification — 2026-09-23
+
+Run on a scratch node:http fixture (`tests/fixtures/make-time-app.sh`) with
+`autonomy=trusted`. Cursor was not logged in and the Copilot account has no
+CLI access (omp uses the same Copilot provider), so `.hq/runtime` set
+`kind_planner=claude`, `kind_specrev=claude`, `kind_impl=claude`. Claude acted
+as the human at both gates at the user's request.
+
+| Check | Result |
+| --- | --- |
+| Offline suite (`bash tests/run.sh`, fake herdr) | PASS, 5 files |
+| Live layout | 7 panes, tabs manager + crew, 5 named agents |
+| E2E "GET /time" | spec READY round 1 → Gate 1 approve → task 01 PASS round 1 → Gate 2; `npm test` 3/3, `/time` returns ISO JSON |
+| Gate 2 `ship` without a remote | Manager explained, did not push, stayed at gate2 |
+| Gate 2 "changes" path | New task 02 (GET /uptime) run through Phase C |
+| Fault test | Injected startup `Error: boom` → runtime NOT clean → FIX → round 2 removed it → clean → PASS → commit |
+
+Defects the live runs found, each fixed test-first in `bin/hq`:
+1. Role prompts typed into startup screens; Claude's trust dialog defaults to "No, exit", so agents quit. → start all agents, then wait until ready before prompting.
+2. herdr reports agents on trust/login screens as idle. → also read the screen for startup markers.
+3. Narrow panes soft-wrap dialog text. → match with whitespace removed; any "No, exit" counts.
+4. Trusted Claude showed the Bypass Permissions confirmation. → `--settings {"skipDangerousModePermissionPrompt":true}` per process.
+5. The manager could not recover an exited crew agent. → crew panes are labelled; `hq respawn` falls back to the label.
+6. `hq respawn` raced herdr releasing the old agent (first respawn always failed). → wait for `pane get` to show no agent.
+
+Added: per-role tool override `kind_<role>` in `.hq/runtime` (or env `HQ_KIND_<role>`).
+Not verified live: cursor and copilot as crew (not logged in / no access), `ask` autonomy, `hq team --resume`.
