@@ -57,7 +57,7 @@ out=$(bin/hq team --resume "$repo" 2>&1); assert_contains "$out" "nothing to res
 bin/hq team --resume "$repo" arch >/dev/null 2>&1; log=$(cat "$FAKE_HERDR_LOG")
 assert_contains "$log" 'Mode: resume' "resume mode passed to manager"
 # role prompts only go to ready agents; all agents start before any prompt
-: >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.*; rm -rf "$repo/.hq"; git -C "$repo" checkout -q main
+: >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.*; rm -rf "$repo/.hq"; git -C "$repo" symbolic-ref HEAD refs/heads/main
 bin/hq team "$repo" "b" arch >/dev/null 2>&1; log=$(cat "$FAKE_HERDR_LOG")
 last_start=$(grep -n '"agent","start"' <<<"$log" | tail -1 | cut -d: -f1)
 first_prompt=$(grep -n '"agent","prompt"' <<<"$log" | head -1 | cut -d: -f1)
