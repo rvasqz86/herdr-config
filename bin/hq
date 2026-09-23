@@ -233,7 +233,8 @@ layout_team() { # dir label mode brief
   team_names_free "$name"
   read -r ws root tab < <(new_workspace "$dir" "$label")
   herdr tab rename "$tab" manager >/dev/null
-  split "$root" right "$dir" >/dev/null   # your shell
+  label "$root" "$name-manager"
+  label "$(split "$root" right "$dir")" shell   # your shell
   crew=$(new_tab "$ws" "$dir" crew)
   runtime=$(herdr pane split "$crew" --direction down --ratio 0.75 --cwd "$dir" --no-focus | jq -r '.result.pane.pane_id')
   herdr pane rename "$runtime" runtime >/dev/null

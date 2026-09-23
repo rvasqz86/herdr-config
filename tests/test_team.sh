@@ -19,6 +19,8 @@ assert_contains "$log" '"pane","rename","w9:p' "runtime pane renamed"
 for r in planner specrev impl taskrev; do
   grep -qE '^\["pane","rename","w9:p[0-9]+","arch-'"$r"'"\]$' <<<"$log" && ok "pane labelled arch-$r" || bad "pane not labelled arch-$r"
 done
+assert_contains "$log" '"pane","rename","w9:p1","arch-manager"' "manager pane labelled"
+assert_contains "$log" '"shell"]' "manager tab shell labelled"
 for pair in manager:claude planner:omp specrev:copilot impl:cursor taskrev:claude; do
   assert_contains "$log" '"agent","start","arch-'"${pair%%:*}"'","--kind","'"${pair#*:}"'"' "starts ${pair%%:*} as ${pair#*:}"
 done
