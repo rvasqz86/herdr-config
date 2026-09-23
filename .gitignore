@@ -1,0 +1,7 @@
+*.log
+*.sock
+*.lock
+session.json
+release-notes.json
+sessions/
+session-history.json

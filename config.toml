@@ -1,0 +1,84 @@
+onboarding = false
+
+# ──────────────────────────────────────────────────────────────
+# herdr setup — solution architect: docs + code with claude / omp
+# Full reference: `herdr --default-config`, https://herdr.dev/docs/configuration/
+# Apply changes live: `herdr server reload-config` (or prefix+shift+r)
+# ──────────────────────────────────────────────────────────────
+
+[theme]
+name = "catppuccin"
+
+[terminal]
+# New panes/tabs start in the same dir as the pane you split from.
+new_cwd = "follow"
+
+[keys]
+# Keep ctrl+b as prefix, and add prefix-free ctrl+alt chords (the family
+# herdr's keyboard guide vets as free in most terminals/DEs).
+focus_pane_left  = ["prefix+h", "ctrl+alt+h"]
+focus_pane_down  = ["prefix+j", "ctrl+alt+j"]
+focus_pane_up    = ["prefix+k", "ctrl+alt+k"]
+focus_pane_right = ["prefix+l", "ctrl+alt+l"]
+previous_tab     = ["prefix+p", "ctrl+alt+["]
+next_tab         = ["prefix+n", "ctrl+alt+]"]
+new_tab          = ["prefix+c", "ctrl+alt+c"]
+split_vertical   = ["prefix+v", "ctrl+alt+d"]
+split_horizontal = ["prefix+minus", "ctrl+alt+shift+d"]
+zoom             = ["prefix+z", "ctrl+alt+z"]
+
+# Juggling many agents: jump to whichever needs you next.
+next_agent       = "prefix+a"
+previous_agent   = "prefix+shift+a"
+focus_agent      = "prefix+alt+1..9"
+switch_workspace = "ctrl+alt+1..9"
+last_pane        = "prefix+semicolon"
+
+# New project workspace (code or docs layout) — see bin/hq
+[[keys.command]]
+key = "ctrl+alt+n"
+type = "popup"
+command = "~/.config/herdr/bin/hq new"
+width = "70%"
+height = "40%"
+
+# Scratch pad for decisions / meeting notes, from anywhere
+[[keys.command]]
+key = "ctrl+alt+m"
+type = "popup"
+command = "mkdir -p ~/notes && vim ~/notes/scratch.md"
+width = "80%"
+height = "80%"
+
+# Quick git overview of the current project
+[[keys.command]]
+key = "ctrl+alt+g"
+type = "popup"
+command = "git status -sb; echo; git log --oneline -15 --graph; echo; read -n1 -p 'press any key'"
+width = "80%"
+height = "70%"
+
+[ui]
+# Attention queue: blocked/done agents float to the top of the sidebar.
+agent_panel_sort = "priority"
+status_indicators = "symbols"
+# Label split borders with the agent name (claude | omp side-by-side).
+show_agent_labels_on_pane_borders = true
+prompt_new_workspace_name = true
+window_title = "{hostname}: {workspace} · {tab}"
+
+[ui.toast]
+# In-app toast when a background agent finishes or needs approval.
+delivery = "herdr"
+delay_seconds = 1
+
+[ui.sound]
+enabled = true
+
+[session]
+# Reopen claude/omp conversations after a server restart.
+resume_agents_on_restore = true
+
+[experimental]
+# Keep recent pane screen history across full server restarts.
+pane_history = true

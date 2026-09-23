@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# hq — spin up herdr workspaces for code and docs work.
+#
+#   hq code <dir> [label]   tab "agents": 2x2 claude omp / copilot cursor   tab "shell": two shells
+#   hq docs <dir> [label]   tab "write":  claude | shell    tab "review": omp
+#   hq new                  interactive picker (bound to ctrl+alt+n)
+#
+# Must run inside herdr (HERDR_ENV=1).
+set -euo pipefail
+
+die() { echo "hq: $*" >&2; exit 1; }
+[ "${HERDR_ENV:-}" = 1 ] || die "not running inside herdr"
+command -v jq >/dev/null || die "jq is required"
+
+slug() { tr '[:upper:]' '[:lower:]' <<<"$1" | tr -c 'a-z0-9\n' '-' | sed 's/^[^a-z]*//; s/-\{2,\}/-/g' | cut -c1-24; }
+
+# Start an agent; don't abort the layout if it hits a trust/login prompt.
+start_agent() { # name kind pane
+  if ! herdr agent start "$1" --kind "$2" --pane "$3" --timeout 60000 >/dev/null 2>&1; then
+    echo "hq: $1 ($2) needs attention in its pane (trust prompt / login?)" >&2
+  fi
+}
+
+split() { # pane direction cwd -> new pane id
+  herdr pane split "$1" --direction "$2" --cwd "$3" --no-focus | jq -r '.result.pane.pane_id'
+}
+
+new_workspace() { # dir label -> "ws_id root_pane first_tab"
+  local out
+  out=$(herdr workspace create --cwd "$1" --label "$2" --no-focus)
+  jq -r '[.result.workspace.workspace_id, .result.root_pane.pane_id, .result.tab.tab_id] | @tsv' <<<"$out"
+}
+
+new_tab() { # ws dir label -> root pane id
+  herdr tab create --workspace "$1" --cwd "$2" --label "$3" --no-focus | jq -r '.result.root_pane.pane_id'
+}
+
+layout_code() { # dir label
+  local dir=$1 label=$2 name ws root tab right below_left below_right shell
+  name=$(slug "$label")
+  read -r ws root tab < <(new_workspace "$dir" "$label")
+  herdr tab rename "$tab" agents >/dev/null
+  right=$(split "$root" right "$dir")
+  below_left=$(split "$root" down "$dir")
+  below_right=$(split "$right" down "$dir")
+  start_agent "${name}-claude" claude "$root"
+  start_agent "${name}-omp" omp "$right"
+  start_agent "${name}-copilot" copilot "$below_left"
+  start_agent "${name}-cursor" cursor "$below_right"
+  shell=$(new_tab "$ws" "$dir" shell)
+  split "$shell" down "$dir" >/dev/null
+  herdr workspace focus "$ws" >/dev/null
+}
+
+layout_docs() { # dir label
+  local dir=$1 label=$2 name ws root tab review
+  name=$(slug "$label")
+  read -r ws root tab < <(new_workspace "$dir" "$label")
+  herdr tab rename "$tab" write >/dev/null
+  split "$root" right "$dir" >/dev/null   # shell for vim / previews / git
+  start_agent "${name}-writer" claude "$root"
+  review=$(new_tab "$ws" "$dir" review)
+  start_agent "${name}-review" omp "$review"
+  herdr workspace focus "$ws" >/dev/null
+}
+
+run() { # kind dir [label]
+  local kind=$1 dir label
+  dir=$(realpath -e "${2:-.}" 2>/dev/null) || die "no such directory: ${2:-}"
+  label=${3:-$(basename "$dir")}
+  case $kind in
+    code) layout_code "$dir" "$label" ;;
+    docs) layout_docs "$dir" "$label" ;;
+    *) die "unknown layout '$kind' (use code|docs)" ;;
+  esac
+}
+
+case ${1:-} in
+  code|docs) run "$@" ;;
+  new)
+    read -rp "Layout [code/docs]: " kind
+    read -erp "Directory: " -i "$HOME/development/" dir
+    read -rp "Label [$(basename "${dir%/}")]: " label
+    run "$kind" "${dir/#\~/$HOME}" ${label:+"$label"}
+    ;;
+  *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac
