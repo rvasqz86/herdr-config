@@ -3,6 +3,7 @@
 #
 #   hq code <dir> [label]            tab "agents": 2x2 claude omp / copilot cursor   tab "shell"
 #   hq docs <dir> [label]            tab "write": claude | shell    tab "review": omp
+#                                    (pick other tools per machine in hq.local)
 #   hq team <dir> "<brief>" [label]  manager-driven pipeline (see roles/manager.md)
 #   hq team --resume <dir> [label]   rebuild the team for an existing .hq/
 #   hq respawn <label>-<role>        fresh session for a crew agent
@@ -15,6 +16,7 @@ set -euo pipefail
 die() { echo "hq: $*" >&2; exit 1; }
 HQ_HOME=${HQ_HOME:-$HOME/.config/herdr}
 ROLES_DIR=${ROLES_DIR:-$HQ_HOME/roles}
+HQ_LOCAL=${HQ_LOCAL:-$HQ_HOME/hq.local}   # this machine's tools; not in git (see hq.local.example)
 
 slug() {
   local s
@@ -45,20 +47,38 @@ role_file() {
   esac
 }
 
-runtime_get() { # dir key -> value, empty if unset
-  local f="$1/.hq/runtime"
-  [ -f "$f" ] || return 0
-  sed -n "s/^$2=//p" "$f" | sed 's/[[:space:]]*#.*$//; s/[[:space:]]*$//' | tail -n 1
+conf_get() { # file key -> value, empty if unset
+  [ -f "$1" ] || return 0
+  sed -n "s/^$2=//p" "$1" | sed 's/[[:space:]]*#.*$//; s/[[:space:]]*$//' | tail -n 1
 }
+runtime_get() { conf_get "$1/.hq/runtime" "$2"; } # dir key
+local_get() { conf_get "$HQ_LOCAL" "$1"; }         # key
 
 KINDS=' pi claude codex gemini cursor devin agy cline omp mastracode opencode copilot kimi kiro droid amp grok hermes kilo qodercli qwen maki muse '
 
-kind_for() { # dir role -> tool: env HQ_KIND_<role>, else kind_<role> in .hq/runtime, else default
+valid_kind() { # tool what
+  [[ $KINDS == *" $1 "* ]] || { echo "hq: unknown agent kind '$1' for $2" >&2; return 1; }
+}
+
+# First set wins: env HQ_KIND_<role>, the project's .hq/runtime, this machine's hq.local, the default.
+kind_for() { # dir role -> tool
   local env="HQ_KIND_$2" k
   k=${!env:-$(runtime_get "$1" "kind_$2")}
+  k=${k:-$(local_get "kind_$2")}
   k=${k:-$(role_kind "$2")} || return 1
-  [[ $KINDS == *" $k "* ]] || { echo "hq: unknown agent kind '$k' for $2" >&2; return 1; }
+  valid_kind "$k" "$2" || return 1
   echo "$k"
+}
+
+code_tools() { # -> 1 to 4 tools for hq code, from hq.local or the default
+  local tools t n=0
+  tools=$(local_get code_tools)
+  for t in ${tools:-claude omp copilot cursor}; do
+    valid_kind "$t" code_tools || return 1
+    n=$((n + 1))
+  done
+  [ $n -le 4 ] || { echo "hq: code_tools takes at most 4 tools" >&2; return 1; }
+  echo ${tools:-claude omp copilot cursor}
 }
 
 abs_dir() { (cd "$1" 2>/dev/null && pwd -P); } # dir -> absolute path, fails if missing
@@ -195,17 +215,20 @@ team_names_free() { # label
 }
 
 layout_code() { # dir label
-  local dir=$1 label=$2 name ws root tab right below_left below_right shell pair
+  local dir=$1 label=$2 name ws root tab shell list tools i
+  list=$(code_tools) || exit 1
+  tools=($list)
   name=$(slug "$label")
   read -r ws root tab < <(new_workspace "$dir" "$label")
   herdr tab rename "$tab" agents >/dev/null
-  right=$(split "$root" right "$dir")
-  below_left=$(split "$root" down "$dir")
-  below_right=$(split "$right" down "$dir")
-  for pair in "claude $root" "omp $right" "copilot $below_left" "cursor $below_right"; do
-    set -- $pair   # tool pane
-    label "$2" "$1"
-    start_agent "${name}-$1" "$1" "$2"
+  # Up to a 2x2 grid, filled left-to-right then top-to-bottom.
+  local panes=("$root")
+  [ ${#tools[@]} -ge 2 ] && panes[1]=$(split "$root" right "$dir")
+  [ ${#tools[@]} -ge 3 ] && panes[2]=$(split "$root" down "$dir")
+  [ ${#tools[@]} -ge 4 ] && panes[3]=$(split "${panes[1]}" down "$dir")
+  for i in "${!tools[@]}"; do
+    label "${panes[$i]}" "${tools[$i]}"
+    start_agent "${name}-${tools[$i]}" "${tools[$i]}" "${panes[$i]}"
   done
   shell=$(new_tab "$ws" "$dir" shell)
   label "$shell" shell
@@ -214,16 +237,19 @@ layout_code() { # dir label
 }
 
 layout_docs() { # dir label
-  local dir=$1 label=$2 name ws root tab review
+  local dir=$1 label=$2 name ws root tab review writer reviewer
+  writer=$(local_get docs_writer); writer=${writer:-claude}
+  reviewer=$(local_get docs_reviewer); reviewer=${reviewer:-omp}
+  valid_kind "$writer" docs_writer && valid_kind "$reviewer" docs_reviewer || exit 1
   name=$(slug "$label")
   read -r ws root tab < <(new_workspace "$dir" "$label")
   herdr tab rename "$tab" write >/dev/null
   label "$(split "$root" right "$dir")" shell   # vim / previews / git
-  label "$root" "writer · claude"
-  start_agent "${name}-writer" claude "$root"
+  label "$root" "writer · $writer"
+  start_agent "${name}-writer" "$writer" "$root"
   review=$(new_tab "$ws" "$dir" review)
-  label "$review" "review · omp"
-  start_agent "${name}-review" omp "$review"
+  label "$review" "review · $reviewer"
+  start_agent "${name}-review" "$reviewer" "$review"
   herdr workspace focus "$ws" >/dev/null
 }
 
@@ -387,7 +413,7 @@ main() {
         run "$kind" "$dir" ${label:+"$label"}
       fi
       ;;
-    *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+    *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
   esac
 }
 

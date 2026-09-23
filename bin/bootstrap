@@ -23,15 +23,26 @@ fi
 ln -sfn "$here/bin/hq" "$bin/hq"
 echo "linked $bin/hq -> $here/bin/hq"
 
+# This machine's tool choices live outside git.
+local_conf=${HQ_LOCAL:-$here/hq.local}
+if [ ! -e "$local_conf" ]; then
+  cp "$here/hq.local.example" "$local_conf"
+  echo "created $local_conf"
+fi
+
 # herdr integration name : command that must be installed
+missing=()
 for pair in claude:claude omp:omp copilot:copilot cursor:cursor-agent; do
   name=${pair%%:*} cmd=${pair#*:}
   if command -v "$cmd" >/dev/null; then
     herdr integration install "$name" >/dev/null && echo "installed herdr integration: $name"
   else
     echo "skipped: $cmd not installed (install it, then re-run bootstrap)"
+    missing+=("$name")
   fi
 done
+[ ${#missing[@]} -eq 0 ] ||
+  echo "note: hq uses ${missing[*]} by default — to use other tools on this machine, edit $local_conf"
 
 case ":$PATH:" in
   *":$bin:"*) ;;

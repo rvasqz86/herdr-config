@@ -5,7 +5,7 @@ root=$(mktemp -d); home="$root/home"; mkdir -p "$home"
 tools="$root/tools"; mkdir -p "$tools"
 for t in claude omp; do printf '#!/bin/sh\n' >"$tools/$t"; chmod +x "$tools/$t"; done
 export FAKE_HERDR_LOG="$root/log"
-run() { HOME="$home" PATH="$PWD/tests/fake-herdr:$tools:/usr/bin:/bin" bash bin/bootstrap 2>&1; }
+run() { HQ_LOCAL="$root/hq.local" HOME="$home" PATH="$PWD/tests/fake-herdr:$tools:/usr/bin:/bin" bash bin/bootstrap 2>&1; }
 
 out=$(run); rc=$?
 assert_eq "$rc" 0 "bootstrap exits 0"
@@ -17,9 +17,13 @@ assert_not_contains "$log" '"install","copilot"' "skips tools that are not insta
 assert_contains "$out" "copilot not installed" "says which tools it skipped"
 assert_contains "$out" "not on your PATH" "warns when ~/.local/bin is not on PATH"
 
+assert_eq "$(cat "$root/hq.local")" "$(cat hq.local.example)" "creates hq.local from the example"
+assert_contains "$out" "hq.local" "points at hq.local for missing tools"
+echo 'code_tools=omp' >"$root/hq.local"
 out=$(run); rc=$?
 assert_eq "$rc" 0 "bootstrap is re-runnable"
 assert_eq "$(readlink "$home/.local/bin/hq")" "$PWD/bin/hq" "link still correct on re-run"
+assert_eq "$(cat "$root/hq.local")" "code_tools=omp" "never overwrites an existing hq.local"
 
 echo "#!/bin/sh" >"$home/.local/bin/hq.tmp"; rm "$home/.local/bin/hq"; mv "$home/.local/bin/hq.tmp" "$home/.local/bin/hq"
 out=$(run); rc=$?

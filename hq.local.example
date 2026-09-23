@@ -1,0 +1,18 @@
+# hq.local — which agent tools hq uses on THIS machine.
+# bootstrap copies this file to ~/.config/herdr/hq.local; edit that copy.
+# It is not in git, so each machine keeps its own. Uncomment what you need.
+# Tools: claude omp copilot cursor (and other herdr agent kinds)
+
+# hq code: 1 to 4 tools, laid out left-to-right, then top-to-bottom
+#code_tools=claude omp copilot cursor
+
+# hq docs
+#docs_writer=claude
+#docs_reviewer=omp
+
+# hq team roles (a project's .hq/runtime overrides these)
+#kind_manager=claude
+#kind_planner=omp
+#kind_specrev=copilot
+#kind_impl=cursor
+#kind_taskrev=claude
