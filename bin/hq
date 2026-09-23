@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # hq — spin up herdr workspaces for code and docs work.
 #
-#   hq code <dir> [label]   tab "agents": 2x2 claude omp / copilot cursor   tab "shell": two shells
-#   hq docs <dir> [label]   tab "write":  claude | shell    tab "review": omp
-#   hq new                  interactive picker (bound to ctrl+alt+n)
+#   hq code <dir> [label]            tab "agents": 2x2 claude omp / copilot cursor   tab "shell"
+#   hq docs <dir> [label]            tab "write": claude | shell    tab "review": omp
+#   hq team <dir> "<brief>" [label]  manager-driven pipeline (see roles/manager.md)
+#   hq team --resume <dir> [label]   rebuild the team for an existing .hq/
+#   hq respawn <label>-<role>        fresh session for a crew agent
+#   <cmd> 2>&1 | hq runlog <file> [max]  tee with rotation (default max 20M)
+#   hq new                           interactive picker (bound to ctrl+alt+n)
 #
 # Must run inside herdr (HERDR_ENV=1).
 set -euo pipefail
@@ -72,9 +76,12 @@ size_bytes() { # 20M | 512K | 1G | 1000 | '' (default 20M) -> bytes
 }
 
 # Start an agent; don't abort the layout if it hits a trust/login prompt.
-start_agent() { # name kind pane
-  if ! herdr agent start "$1" --kind "$2" --pane "$3" --timeout 60000 >/dev/null 2>&1; then
-    echo "hq: $1 ($2) needs attention in its pane (trust prompt / login?)" >&2
+start_agent() { # name kind pane [agent-args...]
+  local name=$1 kind=$2 pane=$3 extra=()
+  shift 3
+  [ $# -gt 0 ] && extra=(-- "$@")
+  if ! herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout 60000 "${extra[@]}" >/dev/null 2>&1; then
+    echo "hq: $name ($kind) needs attention in its pane (trust prompt / login?)" >&2
   fi
 }
 
@@ -90,6 +97,44 @@ new_workspace() { # dir label -> "ws_id root_pane first_tab"
 
 new_tab() { # ws dir label -> root pane id
   herdr tab create --workspace "$1" --cwd "$2" --label "$3" --no-focus | jq -r '.result.root_pane.pane_id'
+}
+
+start_role() { # label role pane dir
+  local kind flags=()
+  kind=$(role_kind "$2")
+  if [ "$2" != manager ]; then
+    mapfile -t flags < <(agent_flags "$kind" "$(runtime_get "$4" autonomy)" "$(current_branch "$4")")
+  fi
+  start_agent "$1-$2" "$kind" "$3" "${flags[@]}"
+}
+
+prompt_agent() { # name text
+  herdr agent prompt "$1" "$2" --wait --timeout 180000 >/dev/null 2>&1 ||
+    echo "hq: $1 did not confirm its role prompt; check its pane" >&2
+}
+
+team_prompt_crew() { # role dir
+  printf 'Your role file is %s. Read it now and follow it for this whole session. Project root: %s. Do nothing else until the manager sends you a task. Reply READY.' \
+    "$(role_file "$1")" "$2"
+}
+
+team_prompt_manager() { # dir label runtime_pane mode brief
+  cat <<EOF
+Your role file is $(role_file manager). Read it now and follow it for this whole session.
+Project root: $1
+Team label: $2
+Crew agents: $2-planner (omp), $2-specrev (copilot), $2-impl (cursor), $2-taskrev (claude)
+Runtime pane: $3
+Mode: $4
+Brief:
+$5
+EOF
+}
+
+team_names_free() { # label
+  local taken
+  taken=$(herdr agent list | jq -r --arg p "$1-" '.result.agents[]? | .name // empty | select(startswith($p))')
+  [ -z "$taken" ] || die "agents already running for '$1': $(tr '\n' ' ' <<<"$taken")— close that workspace or pick another label"
 }
 
 layout_code() { # dir label
@@ -121,6 +166,45 @@ layout_docs() { # dir label
   herdr workspace focus "$ws" >/dev/null
 }
 
+layout_team() { # dir label mode brief
+  local dir=$1 label=$2 mode=$3 brief=$4 name ws root tab crew runtime specrev impl taskrev role
+  name=$(slug "$label")
+  team_names_free "$name"
+  read -r ws root tab < <(new_workspace "$dir" "$label")
+  herdr tab rename "$tab" manager >/dev/null
+  split "$root" right "$dir" >/dev/null   # your shell
+  crew=$(new_tab "$ws" "$dir" crew)
+  runtime=$(herdr pane split "$crew" --direction down --ratio 0.75 --cwd "$dir" --no-focus | jq -r '.result.pane.pane_id')
+  herdr pane rename "$runtime" runtime >/dev/null
+  specrev=$(split "$crew" right "$dir")
+  impl=$(split "$crew" down "$dir")
+  taskrev=$(split "$specrev" down "$dir")
+  local -A pane=([planner]=$crew [specrev]=$specrev [impl]=$impl [taskrev]=$taskrev)
+  start_role "$name" manager "$root" "$dir"
+  for role in planner specrev impl taskrev; do
+    start_role "$name" "$role" "${pane[$role]}" "$dir"
+    prompt_agent "$name-$role" "$(team_prompt_crew "$role" "$dir")"
+  done
+  # No --wait: the manager's first turn is the whole pipeline.
+  herdr agent prompt "$name-manager" "$(team_prompt_manager "$dir" "$name" "$runtime" "$mode" "$brief")" >/dev/null
+  herdr workspace focus "$ws" >/dev/null
+}
+
+cmd_team() {
+  local usage='usage: hq team <dir> "<brief>" [label] | hq team --resume <dir> [label]'
+  local resume=0 dir
+  if [ "${1:-}" = --resume ]; then resume=1; shift; fi
+  dir=$(realpath -e "${1:-}" 2>/dev/null) || die "$usage"
+  git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 || die "$dir is not a git repository"
+  if [ $resume = 1 ]; then
+    [ -f "$dir/.hq/state" ] || die "nothing to resume: $dir/.hq/state not found"
+    layout_team "$dir" "${2:-$(basename "$dir")}" resume "(resuming — read .hq/brief.md and .hq/state)"
+  else
+    [ -n "${2:-}" ] || die "$usage"
+    layout_team "$dir" "${3:-$(basename "$dir")}" new "$2"
+  fi
+}
+
 run() { # kind dir [label]
   local kind=$1 dir label
   dir=$(realpath -e "${2:-.}" 2>/dev/null) || die "no such directory: ${2:-}"
@@ -136,14 +220,21 @@ main() {
   [ "${HERDR_ENV:-}" = 1 ] || die "not running inside herdr"
   command -v jq >/dev/null || die "jq is required"
   case ${1:-} in
-  code|docs) run "$@" ;;
-  new)
-    read -rp "Layout [code/docs]: " kind
-    read -erp "Directory: " -i "$HOME/development/" dir
-    read -rp "Label [$(basename "${dir%/}")]: " label
-    run "$kind" "${dir/#\~/$HOME}" ${label:+"$label"}
-    ;;
-  *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+    code|docs) run "$@" ;;
+    team) shift; cmd_team "$@" ;;
+    new)
+      read -rp "Layout [code/docs/team]: " kind
+      read -erp "Directory: " -i "$HOME/development/" dir
+      dir=${dir/#\~/$HOME}
+      if [ "$kind" = team ]; then
+        read -rp "Brief: " brief
+        cmd_team "$dir" "$brief"
+      else
+        read -rp "Label [$(basename "${dir%/}")]: " label
+        run "$kind" "$dir" ${label:+"$label"}
+      fi
+      ;;
+    *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
   esac
 }
 

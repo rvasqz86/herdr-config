@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Stub herdr for tests: logs each call as a JSON array line, returns canned JSON.
+log=${FAKE_HERDR_LOG:?}
+printf '%s\0' "$@" | jq -Rsc 'split("\u0000")[:-1]' >>"$log"
+n=$(( $(cat "$log.n" 2>/dev/null || echo 1) + 1 )); echo "$n" >"$log.n"
+case "$1 $2" in
+  "workspace create") echo '{"result":{"workspace":{"workspace_id":"w9"},"tab":{"tab_id":"w9:t1"},"root_pane":{"pane_id":"w9:p1"}}}' ;;
+  "tab create") printf '{"result":{"tab":{"tab_id":"w9:t%s"},"root_pane":{"pane_id":"w9:p%s"}}}\n' "$n" "$n" ;;
+  "pane split") printf '{"result":{"pane":{"pane_id":"w9:p%s"}}}\n' "$n" ;;
+  "agent list") jq -cn --arg names "${FAKE_AGENTS:-}" '{result:{agents:[$names|split(" ")[]|select(.!="")|{name:.}]}}' ;;
+  "agent get") jq -cn --arg k "${FAKE_KIND:-cursor}" --arg c "${FAKE_CWD:-/tmp}" '{result:{agent:{agent:$k,pane_id:"w9:p5",cwd:$c}}}' ;;
+  "pane process-info") echo '{"result":{"process_info":{"foreground_process_group_id":100,"shell_pid":100,"foreground_processes":[]}}}' ;;
+  *) echo '{"result":{}}' ;;
+esac
