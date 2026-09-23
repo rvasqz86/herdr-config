@@ -205,6 +205,35 @@ cmd_team() {
   fi
 }
 
+shell_idle() { # pane -> 0 when the shell itself is in the foreground
+  herdr pane process-info --pane "$1" |
+    jq -e '.result.process_info | .foreground_process_group_id == .shell_pid' >/dev/null
+}
+
+cmd_respawn() { # <label>-<role>
+  local name=${1:-} role label info pane dir pgid i
+  [ -n "$name" ] || die "usage: hq respawn <label>-<role>"
+  role=${name##*-}; label=${name%-*}
+  [ "$role" != manager ] || die "respawn is for crew agents, not the manager"
+  role_kind "$role" >/dev/null || die "unknown role in '$name' (expected planner|specrev|impl|taskrev)"
+  info=$(herdr agent get "$name") || die "no live agent named $name"
+  pane=$(jq -r '.result.agent.pane_id' <<<"$info")
+  dir=$(jq -r '.result.agent.cwd' <<<"$info")
+  if ! shell_idle "$pane"; then
+    # Never signal the shell's own group — only the agent in the foreground.
+    pgid=$(herdr pane process-info --pane "$pane" | jq -r '.result.process_info | select(.foreground_process_group_id != .shell_pid) | .foreground_process_group_id')
+    [ -n "$pgid" ] && kill -TERM -- "-$pgid" 2>/dev/null
+    for i in $(seq 1 20); do
+      shell_idle "$pane" && break
+      [ "$i" = 10 ] && [ -n "$pgid" ] && kill -KILL -- "-$pgid" 2>/dev/null
+      sleep 0.5
+    done
+    shell_idle "$pane" || die "$name did not exit (pane $pane)"
+  fi
+  start_role "$label" "$role" "$pane" "$dir"
+  prompt_agent "$name" "$(team_prompt_crew "$role" "$dir")"
+}
+
 run() { # kind dir [label]
   local kind=$1 dir label
   dir=$(realpath -e "${2:-.}" 2>/dev/null) || die "no such directory: ${2:-}"
@@ -222,6 +251,7 @@ main() {
   case ${1:-} in
     code|docs) run "$@" ;;
     team) shift; cmd_team "$@" ;;
+    respawn) shift; cmd_respawn "$@" ;;
     new)
       read -rp "Layout [code/docs/team]: " kind
       read -erp "Directory: " -i "$HOME/development/" dir
