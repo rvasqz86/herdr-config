@@ -51,6 +51,16 @@ runtime_get() { # dir key -> value, empty if unset
   sed -n "s/^$2=//p" "$f" | sed 's/[[:space:]]*#.*$//; s/[[:space:]]*$//' | tail -n 1
 }
 
+KINDS=' pi claude codex gemini cursor devin agy cline omp mastracode opencode copilot kimi kiro droid amp grok hermes kilo qodercli qwen maki muse '
+
+kind_for() { # dir role -> tool: env HQ_KIND_<role>, else kind_<role> in .hq/runtime, else default
+  local env="HQ_KIND_$2" k
+  k=${!env:-$(runtime_get "$1" "kind_$2")}
+  k=${k:-$(role_kind "$2")} || return 1
+  [[ $KINDS == *" $k "* ]] || { echo "hq: unknown agent kind '$k' for $2" >&2; return 1; }
+  echo "$k"
+}
+
 current_branch() { git -C "$1" symbolic-ref --short -q HEAD || true; }
 
 agent_flags() { # kind autonomy branch -> one flag per line
@@ -101,7 +111,7 @@ new_tab() { # ws dir label -> root pane id
 
 start_role() { # label role pane dir
   local kind flags=()
-  kind=$(role_kind "$2")
+  kind=$(kind_for "$4" "$2") || die "bad agent kind for $2"
   if [ "$2" != manager ]; then
     mapfile -t flags < <(agent_flags "$kind" "$(runtime_get "$4" autonomy)" "$(current_branch "$4")")
   fi
@@ -160,7 +170,7 @@ team_prompt_manager() { # dir label runtime_pane mode brief
 Your role file is $(role_file manager). Read it now and follow it for this whole session.
 Project root: $1
 Team label: $2
-Crew agents: $2-planner (omp), $2-specrev (copilot), $2-impl (cursor), $2-taskrev (claude)
+Crew agents: $2-planner ($(kind_for "$1" planner)), $2-specrev ($(kind_for "$1" specrev)), $2-impl ($(kind_for "$1" impl)), $2-taskrev ($(kind_for "$1" taskrev))
 Runtime pane: $3
 Mode: $4
 Brief:

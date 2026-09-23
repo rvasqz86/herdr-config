@@ -46,6 +46,17 @@ assert_eq "$(size_bytes 1000)" 1000 "size_bytes plain bytes"
 assert_eq "$(size_bytes '')" 20971520 "size_bytes default 20M"
 size_bytes lots >/dev/null && bad "size_bytes accepted junk" || ok "size_bytes rejects junk"
 
+k=$(mktemp -d); mkdir -p "$k/.hq"
+assert_eq "$(kind_for "$k" impl)" cursor "kind_for defaults to role_kind"
+printf 'kind_impl=claude\nkind_specrev=omp  # stand-in\n' >"$k/.hq/runtime"
+assert_eq "$(kind_for "$k" impl)" claude "kind_for reads kind_<role> from .hq/runtime"
+assert_eq "$(kind_for "$k" specrev)" omp "kind_for strips comment"
+assert_eq "$(kind_for "$k" planner)" omp "kind_for falls back per role"
+assert_eq "$(HQ_KIND_impl=copilot kind_for "$k" impl)" copilot "env HQ_KIND_<role> wins"
+echo kind_impl=bogus >"$k/.hq/runtime"
+kind_for "$k" impl >/dev/null 2>&1 && bad "kind_for accepted unknown tool" || ok "kind_for rejects unknown tool"
+rm -rf "$k"
+
 out=$(env -u HERDR_ENV bash bin/hq code . 2>&1)
 assert_contains "$out" "not running inside herdr" "executing still checks HERDR_ENV"
 rm -rf "$tmp"

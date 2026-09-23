@@ -92,5 +92,11 @@ for screen in "❯ No, exit
   last_read=$(grep -n '"agent","read","arch-planner"' <<<"$log" | tail -1 | cut -d: -f1)
   [ "$reads" -ge 2 ] && [ "$last_read" -lt "$prompt_line" ] && ok "prompt only after the screen clears: $first" || bad "prompted while on startup screen ($first): reads=$reads"
 done
+# per-project tool override flows into agent start and the manager's crew list
+: >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.* "$FAKE_HERDR_LOG.reads"; mkdir -p "$repo/.hq"; echo kind_impl=claude >"$repo/.hq/runtime"
+bin/hq team "$repo" "b" arch >/dev/null 2>&1; log=$(cat "$FAKE_HERDR_LOG")
+assert_contains "$log" '"agent","start","arch-impl","--kind","claude"' "kind override used for impl"
+assert_contains "$log" 'arch-impl (claude)' "manager told the real impl tool"
+rm -rf "$repo/.hq"
 rm -rf "$root"
 finish

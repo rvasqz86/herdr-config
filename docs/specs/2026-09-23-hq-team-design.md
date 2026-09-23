@@ -88,6 +88,7 @@ health=http://localhost:3000/health
 errors=(Error|Exception|Traceback|ECONNREFUSED|panic)
 test=npm test
 log_max=20M         # runtime log cap (see below)
+kind_impl=claude    # optional per-role tool override (also env HQ_KIND_<role>)
 autonomy=ask        # or: trusted
 ```
 

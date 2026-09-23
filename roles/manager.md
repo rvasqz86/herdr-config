@@ -42,6 +42,7 @@ Crew: `L-planner`, `L-specrev`, `L-impl`, `L-taskrev`. They talk only to you.
    log_max=20M
    autonomy=ask
    ```
+   If `.hq/runtime` already exists, confirm it and keep every key in it, including `kind_<role>=<tool>` overrides (for example `kind_impl=claude` when a tool is not logged in).
 6. If `autonomy=trusted`, now that you are on an `hq/` branch run `hq respawn L-planner` and `hq respawn L-specrev` so they pick up auto-approve flags.
 7. Start the runtime (see Runtime check, steps 1–3). If the server is already answering on `health` before you start it, another process owns the port: notify the human and wait.
 
