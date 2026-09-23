@@ -232,6 +232,8 @@ layout_team() { # dir label mode brief
   # Start everyone first so all trust/login screens show up at once.
   start_role "$name" manager "$root" "$dir"
   for role in planner specrev impl taskrev; do
+    # The label outlives the agent, so `hq respawn` can find the pane after a crash.
+    herdr pane rename "${pane[$role]}" "$name-$role" >/dev/null
     start_role "$name" "$role" "${pane[$role]}" "$dir"
   done
   for role in planner specrev impl taskrev; do
@@ -268,9 +270,16 @@ cmd_respawn() { # <label>-<role>
   role=${name##*-}; label=${name%-*}
   [ "$role" != manager ] || die "respawn is for crew agents, not the manager"
   role_kind "$role" >/dev/null || die "unknown role in '$name' (expected planner|specrev|impl|taskrev)"
-  info=$(herdr agent get "$name") || die "no live agent named $name"
-  pane=$(jq -r '.result.agent.pane_id' <<<"$info")
-  dir=$(jq -r '.result.agent.cwd' <<<"$info")
+  if info=$(herdr agent get "$name" 2>/dev/null); then
+    pane=$(jq -r '.result.agent.pane_id' <<<"$info")
+    dir=$(jq -r '.result.agent.cwd' <<<"$info")
+  else
+    # The agent exited; its pane keeps the label hq team gave it.
+    info=$(herdr pane list | jq -c --arg l "$name" '[.result.panes[]? | select(.label == $l)][0] // empty')
+    [ -n "$info" ] || die "no live agent or pane labelled $name"
+    pane=$(jq -r '.pane_id' <<<"$info")
+    dir=$(jq -r '.cwd' <<<"$info")
+  fi
   if ! shell_idle "$pane"; then
     # Never signal the shell's own group — only the agent in the foreground.
     pgid=$(herdr pane process-info --pane "$pane" | jq -r '.result.process_info | select(.foreground_process_group_id != .shell_pid) | .foreground_process_group_id')

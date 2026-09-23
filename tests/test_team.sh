@@ -16,6 +16,9 @@ assert_eq "$(grep -c '"pane","split"' <<<"$log")" 5 "five splits"
 assert_contains "$log" '"tab","create","--workspace","w9","--cwd","'"$repo"'","--label","crew"' "crew tab"
 assert_contains "$log" '"--ratio","0.75"' "runtime row split"
 assert_contains "$log" '"pane","rename","w9:p' "runtime pane renamed"
+for r in planner specrev impl taskrev; do
+  grep -qE '^\["pane","rename","w9:p[0-9]+","arch-'"$r"'"\]$' <<<"$log" && ok "pane labelled arch-$r" || bad "pane not labelled arch-$r"
+done
 for pair in manager:claude planner:omp specrev:copilot impl:cursor taskrev:claude; do
   assert_contains "$log" '"agent","start","arch-'"${pair%%:*}"'","--kind","'"${pair#*:}"'"' "starts ${pair%%:*} as ${pair#*:}"
 done
