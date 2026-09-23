@@ -9,10 +9,67 @@
 set -euo pipefail
 
 die() { echo "hq: $*" >&2; exit 1; }
-[ "${HERDR_ENV:-}" = 1 ] || die "not running inside herdr"
-command -v jq >/dev/null || die "jq is required"
+HQ_HOME=${HQ_HOME:-$HOME/.config/herdr}
+ROLES_DIR=${ROLES_DIR:-$HQ_HOME/roles}
 
-slug() { tr '[:upper:]' '[:lower:]' <<<"$1" | tr -c 'a-z0-9\n' '-' | sed 's/^[^a-z]*//; s/-\{2,\}/-/g' | cut -c1-24; }
+slug() {
+  local s
+  s=$(tr '[:upper:]' '[:lower:]' <<<"$1" | tr -c 'a-z0-9\n' '-' | sed 's/^[^a-z]*//; s/-\{2,\}/-/g' | cut -c1-20)
+  s=${s%-}
+  [ -n "$s" ] || s="p$(tr -dc '0-9' <<<"$1" | cut -c1-8)"
+  printf '%s\n' "$s"
+}
+
+role_kind() {
+  case $1 in
+    manager|taskrev) echo claude ;;
+    planner) echo omp ;;
+    specrev) echo copilot ;;
+    impl) echo cursor ;;
+    *) return 1 ;;
+  esac
+}
+
+role_file() {
+  case $1 in
+    manager) echo "$ROLES_DIR/manager.md" ;;
+    planner) echo "$ROLES_DIR/planner.md" ;;
+    specrev) echo "$ROLES_DIR/spec-review.md" ;;
+    impl) echo "$ROLES_DIR/implementer.md" ;;
+    taskrev) echo "$ROLES_DIR/task-review.md" ;;
+    *) return 1 ;;
+  esac
+}
+
+runtime_get() { # dir key -> value, empty if unset
+  local f="$1/.hq/runtime"
+  [ -f "$f" ] || return 0
+  sed -n "s/^$2=//p" "$f" | sed 's/[[:space:]]*#.*$//; s/[[:space:]]*$//' | tail -n 1
+}
+
+current_branch() { git -C "$1" symbolic-ref --short -q HEAD || true; }
+
+agent_flags() { # kind autonomy branch -> one flag per line
+  [ "$2" = trusted ] && [[ $3 == hq/* ]] || return 0
+  case $1 in
+    claude) echo --dangerously-skip-permissions ;;
+    omp) echo --auto-approve ;;
+    copilot) echo --allow-all-tools ;;
+    cursor) printf '%s\n' --force --trust ;;
+  esac
+}
+
+size_bytes() { # 20M | 512K | 1G | 1000 | '' (default 20M) -> bytes
+  local v=${1:-20M} n
+  [[ $v =~ ^([0-9]+)([KkMmGg]?)$ ]] || return 1
+  n=${BASH_REMATCH[1]}
+  case ${BASH_REMATCH[2]} in
+    [Kk]) n=$((n * 1024)) ;;
+    [Mm]) n=$((n * 1024 * 1024)) ;;
+    [Gg]) n=$((n * 1024 * 1024 * 1024)) ;;
+  esac
+  echo "$n"
+}
 
 # Start an agent; don't abort the layout if it hits a trust/login prompt.
 start_agent() { # name kind pane
@@ -75,7 +132,10 @@ run() { # kind dir [label]
   esac
 }
 
-case ${1:-} in
+main() {
+  [ "${HERDR_ENV:-}" = 1 ] || die "not running inside herdr"
+  command -v jq >/dev/null || die "jq is required"
+  case ${1:-} in
   code|docs) run "$@" ;;
   new)
     read -rp "Layout [code/docs]: " kind
@@ -84,4 +144,7 @@ case ${1:-} in
     run "$kind" "${dir/#\~/$HOME}" ${label:+"$label"}
     ;;
   *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
-esac
+  esac
+}
+
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then main "$@"; fi
