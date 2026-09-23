@@ -14,6 +14,11 @@ assert_contains "$log" '"agent","start","arch-impl","--kind","cursor","--pane","
 assert_contains "$log" '"--force","--trust"' "keeps trusted flags on hq/* branch"
 assert_contains "$log" "roles/implementer.md" "re-sends role prompt"
 
+: >"$FAKE_HERDR_LOG"
+FAKE_KIND=cursor FAKE_CWD="$repo" FAKE_STATUS=blocked bin/hq respawn arch-impl >/dev/null 2>&1
+log=$(cat "$FAKE_HERDR_LOG")
+assert_contains "$log" '"agent","wait","arch-impl","--until","idle","--until","done"' "respawn waits for a ready agent"
+
 out=$(bin/hq respawn arch-manager 2>&1); assert_contains "$out" "not the manager" "refuses manager"
 out=$(bin/hq respawn arch-bogus 2>&1); assert_contains "$out" "unknown role" "refuses unknown role"
 out=$(bin/hq respawn 2>&1); assert_contains "$out" "usage: hq respawn" "usage"

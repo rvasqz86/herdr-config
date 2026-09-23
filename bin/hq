@@ -108,9 +108,28 @@ start_role() { # label role pane dir
   start_agent "$1-$2" "$kind" "$3" "${flags[@]}"
 }
 
-prompt_agent() { # name text
-  herdr agent prompt "$1" "$2" --wait --timeout 180000 >/dev/null 2>&1 ||
-    echo "hq: $1 did not confirm its role prompt; check its pane" >&2
+# Wait until an agent can take a prompt. Never type into a startup screen:
+# Claude's folder-trust dialog defaults to "No, exit", so a stray Enter quits it.
+await_ready() { # name
+  local status
+  status=$(herdr agent get "$1" 2>/dev/null | jq -r '.result.agent.agent_status // "unknown"') || status=missing
+  case $status in
+    idle|done) return 0 ;;
+    missing) echo "hq: $1 is not running; check its pane" >&2; return 1 ;;
+    blocked)
+      herdr notification show "$1 needs you" --body "Answer its startup screen (trust / login) in its pane" --sound request >/dev/null 2>&1 || true
+      echo "hq: $1 is waiting on a startup screen (trust / login) — answer it in its pane" >&2 ;;
+  esac
+  herdr agent wait "$1" --until idle --until done --timeout 900000 >/dev/null 2>&1 ||
+    { echo "hq: $1 never became ready; check its pane" >&2; return 1; }
+}
+
+prompt_agent() { # name text [--no-wait]
+  local out wait=(--wait --timeout 180000)
+  [ "${3:-}" = --no-wait ] && wait=()
+  await_ready "$1" || return 0
+  out=$(herdr agent prompt "$1" "$2" "${wait[@]}" 2>&1) ||
+    echo "hq: $1 did not take its role prompt: $(jq -r '.error.message // empty' <<<"$out" 2>/dev/null || echo "$out")" >&2
 }
 
 team_prompt_crew() { # role dir
@@ -180,13 +199,16 @@ layout_team() { # dir label mode brief
   impl=$(split "$crew" down "$dir")
   taskrev=$(split "$specrev" down "$dir")
   local -A pane=([planner]=$crew [specrev]=$specrev [impl]=$impl [taskrev]=$taskrev)
+  # Start everyone first so all trust/login screens show up at once.
   start_role "$name" manager "$root" "$dir"
   for role in planner specrev impl taskrev; do
     start_role "$name" "$role" "${pane[$role]}" "$dir"
+  done
+  for role in planner specrev impl taskrev; do
     prompt_agent "$name-$role" "$(team_prompt_crew "$role" "$dir")"
   done
   # No --wait: the manager's first turn is the whole pipeline.
-  herdr agent prompt "$name-manager" "$(team_prompt_manager "$dir" "$name" "$runtime" "$mode" "$brief")" >/dev/null
+  prompt_agent "$name-manager" "$(team_prompt_manager "$dir" "$name" "$runtime" "$mode" "$brief")" --no-wait
   herdr workspace focus "$ws" >/dev/null
 }
 

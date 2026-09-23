@@ -8,7 +8,10 @@ case "$1 $2" in
   "tab create") printf '{"result":{"tab":{"tab_id":"w9:t%s"},"root_pane":{"pane_id":"w9:p%s"}}}\n' "$n" "$n" ;;
   "pane split") printf '{"result":{"pane":{"pane_id":"w9:p%s"}}}\n' "$n" ;;
   "agent list") jq -cn --arg names "${FAKE_AGENTS:-}" '{result:{agents:[$names|split(" ")[]|select(.!="")|{name:.}]}}' ;;
-  "agent get") jq -cn --arg k "${FAKE_KIND:-cursor}" --arg c "${FAKE_CWD:-/tmp}" '{result:{agent:{agent:$k,pane_id:"w9:p5",cwd:$c}}}' ;;
+  "agent get")
+    [ "${FAKE_STATUS:-idle}" = gone ] && { echo '{"error":{"code":"not_found","message":"no agent"}}' >&2; exit 1; }
+    jq -cn --arg k "${FAKE_KIND:-cursor}" --arg c "${FAKE_CWD:-/tmp}" --arg s "${FAKE_STATUS:-idle}" \
+      '{result:{agent:{agent:$k,pane_id:"w9:p5",cwd:$c,agent_status:$s}}}' ;;
   "pane process-info") echo '{"result":{"process_info":{"foreground_process_group_id":100,"shell_pid":100,"foreground_processes":[]}}}' ;;
   *) echo '{"result":{}}' ;;
 esac
