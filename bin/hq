@@ -308,7 +308,12 @@ cmd_runlog() { # <path> [max] — tee that keeps <path> + <path>.1, together abo
   max=$(size_bytes "${2:-}") || die "bad size '${2:-}' (use e.g. 20M, 512K)"
   : >"$path"
   rm -f "$path.1"
-  LC_ALL=C awk -v path="$path" -v half=$((max / 2)) '
+  # mawk buffers pipe input unless told to be interactive.
+  local awk=(awk)
+  if command -v gawk >/dev/null; then awk=(gawk)
+  elif command -v mawk >/dev/null; then awk=(mawk -W interactive)
+  fi
+  LC_ALL=C "${awk[@]}" -v path="$path" -v half=$((max / 2)) '
     {
       print; fflush()
       print >> path; fflush(path)
