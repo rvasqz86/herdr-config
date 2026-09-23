@@ -125,7 +125,8 @@ start_role() { # label role pane dir
 STARTUP_SCREEN='no,exit|bypasspermissionsmode|trustthisfolder|trustthefiles|doyoutrust|rememberthisfolder|pressanykeytologin|pleaselogin|notloggedin'
 
 on_startup_screen() { # name
-  herdr agent read "$1" --source visible --lines 60 2>/dev/null | tr -d '[:space:]' | grep -qiE "$STARTUP_SCREEN"
+  # Only the bottom of the screen: text left above by an earlier session is not a dialog.
+  herdr agent read "$1" --source visible --lines 60 2>/dev/null | tail -n 25 | tr -d '[:space:]' | grep -qiE "$STARTUP_SCREEN"
 }
 
 # Wait until an agent can take a prompt. Never type into a startup screen:
@@ -157,9 +158,11 @@ await_ready() { # name
 prompt_agent() { # name text [--no-wait]
   local out wait=(--wait --timeout 180000)
   [ "${3:-}" = --no-wait ] && wait=()
-  await_ready "$1" || return 0
-  out=$(herdr agent prompt "$1" "$2" "${wait[@]}" 2>&1) ||
+  await_ready "$1" || return 1
+  if ! out=$(herdr agent prompt "$1" "$2" "${wait[@]}" 2>&1); then
     echo "hq: $1 did not take its role prompt: $(jq -r '.error.message // empty' <<<"$out" 2>/dev/null || echo "$out")" >&2
+    return 1
+  fi
 }
 
 team_prompt_crew() { # role dir
@@ -216,8 +219,10 @@ layout_docs() { # dir label
 }
 
 layout_team() { # dir label mode brief
-  local dir=$1 label=$2 mode=$3 brief=$4 name ws root tab crew runtime specrev impl taskrev role
+  local dir=$1 label=$2 mode=$3 brief=$4 name ws root tab crew runtime specrev impl taskrev role unprimed=()
   name=$(slug "$label")
+  # Resolve every tool first so a typo in .hq/runtime cannot half-build the team.
+  for role in manager planner specrev impl taskrev; do kind_for "$dir" "$role" >/dev/null || exit 1; done
   team_names_free "$name"
   read -r ws root tab < <(new_workspace "$dir" "$label")
   herdr tab rename "$tab" manager >/dev/null
@@ -237,10 +242,13 @@ layout_team() { # dir label mode brief
     start_role "$name" "$role" "${pane[$role]}" "$dir"
   done
   for role in planner specrev impl taskrev; do
-    prompt_agent "$name-$role" "$(team_prompt_crew "$role" "$dir")"
+    prompt_agent "$name-$role" "$(team_prompt_crew "$role" "$dir")" || unprimed+=("$name-$role")
   done
   # No --wait: the manager's first turn is the whole pipeline.
-  prompt_agent "$name-manager" "$(team_prompt_manager "$dir" "$name" "$runtime" "$mode" "$brief")" --no-wait
+  prompt_agent "$name-manager" "$(team_prompt_manager "$dir" "$name" "$runtime" "$mode" "$brief")" --no-wait ||
+    unprimed+=("$name-manager")
+  [ ${#unprimed[@]} -eq 0 ] ||
+    echo "hq: not primed: ${unprimed[*]} — fix their panes, then hq respawn <name> (or close the workspace and rerun)" >&2
   herdr workspace focus "$ws" >/dev/null
 }
 
@@ -275,18 +283,25 @@ cmd_respawn() { # <label>-<role>
     dir=$(jq -r '.result.agent.cwd' <<<"$info")
   else
     # The agent exited; its pane keeps the label hq team gave it.
-    info=$(herdr pane list | jq -c --arg l "$name" '[.result.panes[]? | select(.label == $l)][0] // empty')
-    [ -n "$info" ] || die "no live agent or pane labelled $name"
+    # Prefer the caller's workspace: an older team may still have a pane with this label.
+    info=$(herdr pane list | jq -c --arg l "$name" --arg w "${HERDR_WORKSPACE_ID:-}" '
+      [.result.panes[]? | select(.label == $l)] as $all
+      | [$all[] | select(.workspace_id == $w)] | if length > 0 then . else $all end')
+    case $(jq length <<<"$info") in
+      0) die "no live agent or pane labelled $name" ;;
+      1) info=$(jq -c '.[0]' <<<"$info") ;;
+      *) die "$(jq length <<<"$info") panes are labelled $name — close the old team workspace, or run this from the team's workspace" ;;
+    esac
     pane=$(jq -r '.pane_id' <<<"$info")
     dir=$(jq -r '.cwd' <<<"$info")
   fi
   if ! shell_idle "$pane"; then
     # Never signal the shell's own group — only the agent in the foreground.
     pgid=$(herdr pane process-info --pane "$pane" | jq -r '.result.process_info | select(.foreground_process_group_id != .shell_pid) | .foreground_process_group_id')
-    [ -n "$pgid" ] && kill -TERM -- "-$pgid" 2>/dev/null
+    [ -n "$pgid" ] && { kill -TERM -- "-$pgid" 2>/dev/null || true; }
     for i in $(seq 1 20); do
       shell_idle "$pane" && break
-      [ "$i" = 10 ] && [ -n "$pgid" ] && kill -KILL -- "-$pgid" 2>/dev/null
+      [ "$i" = 10 ] && [ -n "$pgid" ] && { kill -KILL -- "-$pgid" 2>/dev/null || true; }
       sleep 0.5
     done
     shell_idle "$pane" || die "$name did not exit (pane $pane)"
@@ -298,8 +313,9 @@ cmd_respawn() { # <label>-<role>
     [ "$i" = 20 ] && die "herdr still shows an agent in pane $pane"
     sleep "${HQ_POLL:-0.5}"
   done
+  herdr pane run "$pane" clear >/dev/null   # drop the old session's text from the screen
   start_role "$label" "$role" "$pane" "$dir"
-  prompt_agent "$name" "$(team_prompt_crew "$role" "$dir")"
+  prompt_agent "$name" "$(team_prompt_crew "$role" "$dir")" || die "$name was restarted but did not take its role prompt"
 }
 
 cmd_runlog() { # <path> [max] — tee that keeps <path> + <path>.1, together about <max>

@@ -108,5 +108,25 @@ bin/hq team "$repo" "b" arch >/dev/null 2>&1; log=$(cat "$FAKE_HERDR_LOG")
 assert_contains "$log" '"agent","start","arch-impl","--kind","claude"' "kind override used for impl"
 assert_contains "$log" 'arch-impl (claude)' "manager told the real impl tool"
 rm -rf "$repo/.hq"
+# a bad kind override fails before anything is built
+: >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.*; mkdir -p "$repo/.hq"; echo kind_impl=cluade >"$repo/.hq/runtime"
+out=$(bin/hq team "$repo" "b" arch 2>&1); rc=$?
+assert_eq "$rc" 1 "bad kind exits 1"
+assert_contains "$out" "unknown agent kind 'cluade'" "bad kind named"
+assert_not_contains "$(cat "$FAKE_HERDR_LOG")" '"workspace","create"' "no layout with a bad kind"
+rm -rf "$repo/.hq"
+
+# agents that never took their role prompt are listed at the end
+: >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.*
+out=$(FAKE_PROMPT_FAIL=1 bin/hq team "$repo" "b" arch 2>&1); rc=$?
+assert_eq "$rc" 0 "layout still completes when priming fails"
+assert_contains "$out" "not primed: arch-planner arch-specrev arch-impl arch-taskrev arch-manager" "unprimed agents summarised"
+
+# stale text far above the prompt is not a startup screen
+: >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.* "$FAKE_HERDR_LOG.reads"
+stale="returns 401 when not logged in
+$(seq 1 30)"
+out=$(FAKE_SCREEN="$stale" FAKE_SCREEN_READS=99 HQ_POLL=0 HQ_READY_TIMEOUT=2 bin/hq team "$repo" "b" arch 2>&1)
+assert_not_contains "$out" "startup screen" "old session text above the fold is ignored"
 rm -rf "$root"
 finish

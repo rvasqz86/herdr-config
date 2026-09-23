@@ -7,6 +7,9 @@ case "$1 $2" in
   "workspace create") echo '{"result":{"workspace":{"workspace_id":"w9"},"tab":{"tab_id":"w9:t1"},"root_pane":{"pane_id":"w9:p1"}}}' ;;
   "tab create") printf '{"result":{"tab":{"tab_id":"w9:t%s"},"root_pane":{"pane_id":"w9:p%s"}}}\n' "$n" "$n" ;;
   "pane split") printf '{"result":{"pane":{"pane_id":"w9:p%s"}}}\n' "$n" ;;
+  "agent prompt")
+    [ -n "${FAKE_PROMPT_FAIL:-}" ] && { echo '{"error":{"code":"agent_prompt_stalled","message":"no activity"}}'; exit 1; }
+    echo '{"result":{}}' ;;
   "agent list") jq -cn --arg names "${FAKE_AGENTS:-}" '{result:{agents:[$names|split(" ")[]|select(.!="")|{name:.}]}}' ;;
   "agent get")
     # FAKE_STATUS applies to the first FAKE_STATUS_READS gets per agent, then idle.
@@ -19,13 +22,18 @@ case "$1 $2" in
     # FAKE_SCREEN is shown for the first FAKE_SCREEN_READS reads, then a ready prompt.
     r=$(( $(cat "$log.reads" 2>/dev/null || echo 0) + 1 )); echo "$r" >"$log.reads"
     if [ -n "${FAKE_SCREEN:-}" ] && [ "$r" -le "${FAKE_SCREEN_READS:-1}" ]; then echo "$FAKE_SCREEN"; else echo "> ready"; fi ;;
-  "pane list") jq -cn --arg c "${FAKE_CWD:-/tmp}" --arg l "${FAKE_PANE_LABEL:-}" \
-      '{result:{panes:(if $l == "" then [] else [{pane_id:"w9:p5",label:$l,cwd:$c}] end)}}' ;;
+  "pane list") jq -cn --arg c "${FAKE_CWD:-/tmp}" --arg l "${FAKE_PANE_LABEL:-}" --arg d "${FAKE_PANE_DUP:-}" \
+      '{result:{panes:((if $d == "" then [] else [{pane_id:"w1:p5",workspace_id:"w1",label:$l,cwd:$c}] end)
+                       + (if $l == "" then [] else [{pane_id:"w9:p5",workspace_id:"w9",label:$l,cwd:$c}] end))}}' ;;
   "pane get")
     # The pane still reports an agent for the first FAKE_PANE_BUSY_READS gets.
     b=$(( $(cat "$log.paneget" 2>/dev/null || echo 0) + 1 )); echo "$b" >"$log.paneget"
     if [ "$b" -le "${FAKE_PANE_BUSY_READS:-0}" ]; then a='"claude"'; else a=null; fi
     printf '{"result":{"pane":{"pane_id":"%s","agent":%s}}}\n' "$3" "$a" ;;
-  "pane process-info") echo '{"result":{"process_info":{"foreground_process_group_id":100,"shell_pid":100,"foreground_processes":[]}}}' ;;
+  "pane process-info")
+    # Busy (a foreground pgid that no longer exists) for the first FAKE_PROC_BUSY_READS reads.
+    q=$(( $(cat "$log.proc" 2>/dev/null || echo 0) + 1 )); echo "$q" >"$log.proc"
+    fg=100; [ "$q" -le "${FAKE_PROC_BUSY_READS:-0}" ] && fg=999999
+    printf '{"result":{"process_info":{"foreground_process_group_id":%s,"shell_pid":100,"foreground_processes":[]}}}\n' "$fg" ;;
   *) echo '{"result":{}}' ;;
 esac
