@@ -108,20 +108,38 @@ start_role() { # label role pane dir
   start_agent "$1-$2" "$kind" "$3" "${flags[@]}"
 }
 
+# Screens an agent shows before it can take input. herdr may report an agent
+# sitting on one of these as idle, so hq reads the screen too.
+STARTUP_SCREEN='trust this folder|trust the files|do you trust|remember this folder|press any key to log in|please log in|not logged in'
+
+on_startup_screen() { # name
+  herdr agent read "$1" --source visible --lines 60 2>/dev/null | grep -qiE "$STARTUP_SCREEN"
+}
+
 # Wait until an agent can take a prompt. Never type into a startup screen:
 # Claude's folder-trust dialog defaults to "No, exit", so a stray Enter quits it.
 await_ready() { # name
-  local status
-  status=$(herdr agent get "$1" 2>/dev/null | jq -r '.result.agent.agent_status // "unknown"') || status=missing
-  case $status in
-    idle|done) return 0 ;;
-    missing) echo "hq: $1 is not running; check its pane" >&2; return 1 ;;
-    blocked)
-      herdr notification show "$1 needs you" --body "Answer its startup screen (trust / login) in its pane" --sound request >/dev/null 2>&1 || true
-      echo "hq: $1 is waiting on a startup screen (trust / login) — answer it in its pane" >&2 ;;
-  esac
-  herdr agent wait "$1" --until idle --until done --timeout 900000 >/dev/null 2>&1 ||
-    { echo "hq: $1 never became ready; check its pane" >&2; return 1; }
+  local status notified=0 deadline=$((SECONDS + ${HQ_READY_TIMEOUT:-900}))
+  while :; do
+    status=$(herdr agent get "$1" 2>/dev/null | jq -r '.result.agent.agent_status // "unknown"') || status=missing
+    if [ "$status" = missing ]; then
+      echo "hq: $1 is not running; check its pane" >&2; return 1
+    elif [ "$status" = blocked ] || on_startup_screen "$1"; then
+      if [ $notified = 0 ]; then
+        herdr notification show "$1 needs you" --body "Answer its startup screen (trust / login) in its pane" --sound request >/dev/null 2>&1 || true
+        echo "hq: $1 is waiting on a startup screen (trust / login) — answer it in its pane" >&2
+        notified=1
+      fi
+    elif [ "$status" = idle ] || [ "$status" = done ]; then
+      return 0
+    fi
+    [ $SECONDS -lt $deadline ] || { echo "hq: $1 never became ready; check its pane" >&2; return 1; }
+    if [ "$status" = blocked ] || [ "$status" = unknown ] || [ "$status" = working ]; then
+      herdr agent wait "$1" --until idle --until done --timeout 2000 >/dev/null 2>&1 || true
+    else
+      sleep "${HQ_POLL:-2}"
+    fi
+  done
 }
 
 prompt_agent() { # name text [--no-wait]

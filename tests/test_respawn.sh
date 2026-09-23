@@ -15,7 +15,8 @@ assert_contains "$log" '"--force","--trust"' "keeps trusted flags on hq/* branch
 assert_contains "$log" "roles/implementer.md" "re-sends role prompt"
 
 : >"$FAKE_HERDR_LOG"
-FAKE_KIND=cursor FAKE_CWD="$repo" FAKE_STATUS=blocked bin/hq respawn arch-impl >/dev/null 2>&1
+rm -f "$FAKE_HERDR_LOG".get.*
+FAKE_KIND=cursor FAKE_CWD="$repo" FAKE_STATUS=blocked FAKE_STATUS_READS=2 bin/hq respawn arch-impl >/dev/null 2>&1
 log=$(cat "$FAKE_HERDR_LOG")
 assert_contains "$log" '"agent","wait","arch-impl","--until","idle","--until","done"' "respawn waits for a ready agent"
 

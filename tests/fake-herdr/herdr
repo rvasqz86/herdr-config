@@ -10,8 +10,15 @@ case "$1 $2" in
   "agent list") jq -cn --arg names "${FAKE_AGENTS:-}" '{result:{agents:[$names|split(" ")[]|select(.!="")|{name:.}]}}' ;;
   "agent get")
     [ "${FAKE_STATUS:-idle}" = gone ] && { echo '{"error":{"code":"not_found","message":"no agent"}}' >&2; exit 1; }
-    jq -cn --arg k "${FAKE_KIND:-cursor}" --arg c "${FAKE_CWD:-/tmp}" --arg s "${FAKE_STATUS:-idle}" \
+    # FAKE_STATUS applies to the first FAKE_STATUS_READS gets per agent, then idle.
+    g="$log.get.$3"; c=$(( $(cat "$g" 2>/dev/null || echo 0) + 1 )); echo "$c" >"$g"
+    st=${FAKE_STATUS:-idle}; [ "$c" -gt "${FAKE_STATUS_READS:-1}" ] && st=idle
+    jq -cn --arg k "${FAKE_KIND:-cursor}" --arg c "${FAKE_CWD:-/tmp}" --arg s "$st" \
       '{result:{agent:{agent:$k,pane_id:"w9:p5",cwd:$c,agent_status:$s}}}' ;;
+  "agent read")
+    # FAKE_SCREEN is shown for the first FAKE_SCREEN_READS reads, then a ready prompt.
+    r=$(( $(cat "$log.reads" 2>/dev/null || echo 0) + 1 )); echo "$r" >"$log.reads"
+    if [ -n "${FAKE_SCREEN:-}" ] && [ "$r" -le "${FAKE_SCREEN_READS:-1}" ]; then echo "$FAKE_SCREEN"; else echo "> ready"; fi ;;
   "pane process-info") echo '{"result":{"process_info":{"foreground_process_group_id":100,"shell_pid":100,"foreground_processes":[]}}}' ;;
   *) echo '{"result":{}}' ;;
 esac
