@@ -234,6 +234,25 @@ cmd_respawn() { # <label>-<role>
   prompt_agent "$name" "$(team_prompt_crew "$role" "$dir")"
 }
 
+cmd_runlog() { # <path> [max] — tee that keeps <path> + <path>.1, together about <max>
+  local path=${1:-} max
+  [ -n "$path" ] || die "usage: <cmd> 2>&1 | hq runlog <path> [max]"
+  max=$(size_bytes "${2:-}") || die "bad size '${2:-}' (use e.g. 20M, 512K)"
+  : >"$path"
+  rm -f "$path.1"
+  LC_ALL=C awk -v path="$path" -v half=$((max / 2)) '
+    {
+      print; fflush()
+      print >> path; fflush(path)
+      bytes += length($0) + 1
+      if (bytes >= half) {
+        close(path)
+        system("mv -f \"" path "\" \"" path ".1\" && : > \"" path "\"")
+        bytes = 0
+      }
+    }'
+}
+
 run() { # kind dir [label]
   local kind=$1 dir label
   dir=$(realpath -e "${2:-.}" 2>/dev/null) || die "no such directory: ${2:-}"
@@ -252,6 +271,7 @@ main() {
     code|docs) run "$@" ;;
     team) shift; cmd_team "$@" ;;
     respawn) shift; cmd_respawn "$@" ;;
+    runlog) shift; cmd_runlog "$@" ;;
     new)
       read -rp "Layout [code/docs/team]: " kind
       read -erp "Directory: " -i "$HOME/development/" dir
