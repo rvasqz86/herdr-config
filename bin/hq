@@ -1,23 +1,98 @@
 #!/usr/bin/env bash
 # hq — spin up herdr workspaces for code and docs work.
 #
-#   hq code <dir> [label]   tab "agents": 2x2 claude omp / copilot cursor   tab "shell": two shells
-#   hq docs <dir> [label]   tab "write":  claude | shell    tab "review": omp
-#   hq new                  interactive picker (bound to ctrl+alt+n)
+#   hq code <dir> [label]            tab "agents": 2x2 claude omp / copilot cursor   tab "shell"
+#   hq docs <dir> [label]            tab "write": claude | shell    tab "review": omp
+#   hq team <dir> "<brief>" [label]  manager-driven pipeline (see roles/manager.md)
+#   hq team --resume <dir> [label]   rebuild the team for an existing .hq/
+#   hq respawn <label>-<role>        fresh session for a crew agent
+#   <cmd> 2>&1 | hq runlog <file> [max]  tee with rotation (default max 20M)
+#   hq new                           interactive picker (bound to ctrl+alt+n)
 #
 # Must run inside herdr (HERDR_ENV=1).
 set -euo pipefail
 
 die() { echo "hq: $*" >&2; exit 1; }
-[ "${HERDR_ENV:-}" = 1 ] || die "not running inside herdr"
-command -v jq >/dev/null || die "jq is required"
+HQ_HOME=${HQ_HOME:-$HOME/.config/herdr}
+ROLES_DIR=${ROLES_DIR:-$HQ_HOME/roles}
 
-slug() { tr '[:upper:]' '[:lower:]' <<<"$1" | tr -c 'a-z0-9\n' '-' | sed 's/^[^a-z]*//; s/-\{2,\}/-/g' | cut -c1-24; }
+slug() {
+  local s
+  s=$(tr '[:upper:]' '[:lower:]' <<<"$1" | tr -c 'a-z0-9\n' '-' | sed 's/^[^a-z]*//; s/-\{2,\}/-/g' | cut -c1-20)
+  s=${s%-}
+  [ -n "$s" ] || s="p$(tr -dc '0-9' <<<"$1" | cut -c1-8)"
+  printf '%s\n' "$s"
+}
+
+role_kind() {
+  case $1 in
+    manager|taskrev) echo claude ;;
+    planner) echo omp ;;
+    specrev) echo copilot ;;
+    impl) echo cursor ;;
+    *) return 1 ;;
+  esac
+}
+
+role_file() {
+  case $1 in
+    manager) echo "$ROLES_DIR/manager.md" ;;
+    planner) echo "$ROLES_DIR/planner.md" ;;
+    specrev) echo "$ROLES_DIR/spec-review.md" ;;
+    impl) echo "$ROLES_DIR/implementer.md" ;;
+    taskrev) echo "$ROLES_DIR/task-review.md" ;;
+    *) return 1 ;;
+  esac
+}
+
+runtime_get() { # dir key -> value, empty if unset
+  local f="$1/.hq/runtime"
+  [ -f "$f" ] || return 0
+  sed -n "s/^$2=//p" "$f" | sed 's/[[:space:]]*#.*$//; s/[[:space:]]*$//' | tail -n 1
+}
+
+KINDS=' pi claude codex gemini cursor devin agy cline omp mastracode opencode copilot kimi kiro droid amp grok hermes kilo qodercli qwen maki muse '
+
+kind_for() { # dir role -> tool: env HQ_KIND_<role>, else kind_<role> in .hq/runtime, else default
+  local env="HQ_KIND_$2" k
+  k=${!env:-$(runtime_get "$1" "kind_$2")}
+  k=${k:-$(role_kind "$2")} || return 1
+  [[ $KINDS == *" $k "* ]] || { echo "hq: unknown agent kind '$k' for $2" >&2; return 1; }
+  echo "$k"
+}
+
+current_branch() { git -C "$1" symbolic-ref --short -q HEAD || true; }
+
+agent_flags() { # kind autonomy branch -> one flag per line
+  [ "$2" = trusted ] && [[ $3 == hq/* ]] || return 0
+  case $1 in
+    # --settings skips Claude's 'Bypass Permissions' confirmation (defaults to 'No, exit').
+    claude) printf '%s\n' --dangerously-skip-permissions --settings '{"skipDangerousModePermissionPrompt":true}' ;;
+    omp) echo --auto-approve ;;
+    copilot) echo --allow-all-tools ;;
+    cursor) printf '%s\n' --force --trust ;;
+  esac
+}
+
+size_bytes() { # 20M | 512K | 1G | 1000 | '' (default 20M) -> bytes
+  local v=${1:-20M} n
+  [[ $v =~ ^([0-9]+)([KkMmGg]?)$ ]] || return 1
+  n=${BASH_REMATCH[1]}
+  case ${BASH_REMATCH[2]} in
+    [Kk]) n=$((n * 1024)) ;;
+    [Mm]) n=$((n * 1024 * 1024)) ;;
+    [Gg]) n=$((n * 1024 * 1024 * 1024)) ;;
+  esac
+  echo "$n"
+}
 
 # Start an agent; don't abort the layout if it hits a trust/login prompt.
-start_agent() { # name kind pane
-  if ! herdr agent start "$1" --kind "$2" --pane "$3" --timeout 60000 >/dev/null 2>&1; then
-    echo "hq: $1 ($2) needs attention in its pane (trust prompt / login?)" >&2
+start_agent() { # name kind pane [agent-args...]
+  local name=$1 kind=$2 pane=$3 extra=()
+  shift 3
+  [ $# -gt 0 ] && extra=(-- "$@")
+  if ! herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout 60000 "${extra[@]}" >/dev/null 2>&1; then
+    echo "hq: $name ($kind) needs attention in its pane (trust prompt / login?)" >&2
   fi
 }
 
@@ -33,6 +108,85 @@ new_workspace() { # dir label -> "ws_id root_pane first_tab"
 
 new_tab() { # ws dir label -> root pane id
   herdr tab create --workspace "$1" --cwd "$2" --label "$3" --no-focus | jq -r '.result.root_pane.pane_id'
+}
+
+start_role() { # label role pane dir
+  local kind flags=()
+  kind=$(kind_for "$4" "$2") || die "bad agent kind for $2"
+  if [ "$2" != manager ]; then
+    mapfile -t flags < <(agent_flags "$kind" "$(runtime_get "$4" autonomy)" "$(current_branch "$4")")
+  fi
+  start_agent "$1-$2" "$kind" "$3" "${flags[@]}"
+}
+
+# Screens an agent shows before it can take input. herdr may report an agent
+# sitting on one of these as idle, so hq reads the screen too. Narrow panes
+# soft-wrap anywhere, even mid-word, so matching ignores all whitespace.
+STARTUP_SCREEN='no,exit|bypasspermissionsmode|trustthisfolder|trustthefiles|doyoutrust|rememberthisfolder|pressanykeytologin|pleaselogin|notloggedin'
+
+on_startup_screen() { # name
+  # Only the bottom of the screen: text left above by an earlier session is not a dialog.
+  herdr agent read "$1" --source visible --lines 60 2>/dev/null | tail -n 25 | tr -d '[:space:]' | grep -qiE "$STARTUP_SCREEN"
+}
+
+# Wait until an agent can take a prompt. Never type into a startup screen:
+# Claude's folder-trust dialog defaults to "No, exit", so a stray Enter quits it.
+await_ready() { # name
+  local status notified=0 deadline=$((SECONDS + ${HQ_READY_TIMEOUT:-900}))
+  while :; do
+    status=$(herdr agent get "$1" 2>/dev/null | jq -r '.result.agent.agent_status // "unknown"') || status=missing
+    if [ "$status" = missing ]; then
+      echo "hq: $1 is not running; check its pane" >&2; return 1
+    elif [ "$status" = blocked ] || on_startup_screen "$1"; then
+      if [ $notified = 0 ]; then
+        herdr notification show "$1 needs you" --body "Answer its startup screen (trust / login) in its pane" --sound request >/dev/null 2>&1 || true
+        echo "hq: $1 is waiting on a startup screen (trust / login) — answer it in its pane" >&2
+        notified=1
+      fi
+    elif [ "$status" = idle ] || [ "$status" = done ]; then
+      return 0
+    fi
+    [ $SECONDS -lt $deadline ] || { echo "hq: $1 never became ready; check its pane" >&2; return 1; }
+    if [ "$status" = blocked ] || [ "$status" = unknown ] || [ "$status" = working ]; then
+      herdr agent wait "$1" --until idle --until done --timeout 2000 >/dev/null 2>&1 || true
+    else
+      sleep "${HQ_POLL:-2}"
+    fi
+  done
+}
+
+prompt_agent() { # name text [--no-wait]
+  local out wait=(--wait --timeout 180000)
+  [ "${3:-}" = --no-wait ] && wait=()
+  await_ready "$1" || return 1
+  if ! out=$(herdr agent prompt "$1" "$2" "${wait[@]}" 2>&1); then
+    echo "hq: $1 did not take its role prompt: $(jq -r '.error.message // empty' <<<"$out" 2>/dev/null || echo "$out")" >&2
+    return 1
+  fi
+}
+
+team_prompt_crew() { # role dir
+  printf 'Your role file is %s. Read it now and follow it for this whole session. Project root: %s. Do nothing else until the manager sends you a task. Reply READY.' \
+    "$(role_file "$1")" "$2"
+}
+
+team_prompt_manager() { # dir label runtime_pane mode brief
+  cat <<EOF
+Your role file is $(role_file manager). Read it now and follow it for this whole session.
+Project root: $1
+Team label: $2
+Crew agents: $2-planner ($(kind_for "$1" planner)), $2-specrev ($(kind_for "$1" specrev)), $2-impl ($(kind_for "$1" impl)), $2-taskrev ($(kind_for "$1" taskrev))
+Runtime pane: $3
+Mode: $4
+Brief:
+$5
+EOF
+}
+
+team_names_free() { # label
+  local taken
+  taken=$(herdr agent list | jq -r --arg p "$1-" '.result.agents[]? | .name // empty | select(startswith($p))')
+  [ -z "$taken" ] || die "agents already running for '$1': $(tr '\n' ' ' <<<"$taken")— close that workspace or pick another label"
 }
 
 layout_code() { # dir label
@@ -64,6 +218,130 @@ layout_docs() { # dir label
   herdr workspace focus "$ws" >/dev/null
 }
 
+layout_team() { # dir label mode brief
+  local dir=$1 label=$2 mode=$3 brief=$4 name ws root tab crew runtime specrev impl taskrev role unprimed=()
+  name=$(slug "$label")
+  # Resolve every tool first so a typo in .hq/runtime cannot half-build the team.
+  for role in manager planner specrev impl taskrev; do kind_for "$dir" "$role" >/dev/null || exit 1; done
+  team_names_free "$name"
+  read -r ws root tab < <(new_workspace "$dir" "$label")
+  herdr tab rename "$tab" manager >/dev/null
+  split "$root" right "$dir" >/dev/null   # your shell
+  crew=$(new_tab "$ws" "$dir" crew)
+  runtime=$(herdr pane split "$crew" --direction down --ratio 0.75 --cwd "$dir" --no-focus | jq -r '.result.pane.pane_id')
+  herdr pane rename "$runtime" runtime >/dev/null
+  specrev=$(split "$crew" right "$dir")
+  impl=$(split "$crew" down "$dir")
+  taskrev=$(split "$specrev" down "$dir")
+  local -A pane=([planner]=$crew [specrev]=$specrev [impl]=$impl [taskrev]=$taskrev)
+  # Start everyone first so all trust/login screens show up at once.
+  start_role "$name" manager "$root" "$dir"
+  for role in planner specrev impl taskrev; do
+    # The label outlives the agent, so `hq respawn` can find the pane after a crash.
+    herdr pane rename "${pane[$role]}" "$name-$role" >/dev/null
+    start_role "$name" "$role" "${pane[$role]}" "$dir"
+  done
+  for role in planner specrev impl taskrev; do
+    prompt_agent "$name-$role" "$(team_prompt_crew "$role" "$dir")" || unprimed+=("$name-$role")
+  done
+  # No --wait: the manager's first turn is the whole pipeline.
+  prompt_agent "$name-manager" "$(team_prompt_manager "$dir" "$name" "$runtime" "$mode" "$brief")" --no-wait ||
+    unprimed+=("$name-manager")
+  [ ${#unprimed[@]} -eq 0 ] ||
+    echo "hq: not primed: ${unprimed[*]} — fix their panes, then hq respawn <name> (or close the workspace and rerun)" >&2
+  herdr workspace focus "$ws" >/dev/null
+}
+
+cmd_team() {
+  local usage='usage: hq team <dir> "<brief>" [label] | hq team --resume <dir> [label]'
+  local resume=0 dir
+  if [ "${1:-}" = --resume ]; then resume=1; shift; fi
+  dir=$(realpath -e "${1:-}" 2>/dev/null) || die "$usage"
+  git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 || die "$dir is not a git repository"
+  if [ $resume = 1 ]; then
+    [ -f "$dir/.hq/state" ] || die "nothing to resume: $dir/.hq/state not found"
+    layout_team "$dir" "${2:-$(basename "$dir")}" resume "(resuming — read .hq/brief.md and .hq/state)"
+  else
+    [ -n "${2:-}" ] || die "$usage"
+    layout_team "$dir" "${3:-$(basename "$dir")}" new "$2"
+  fi
+}
+
+shell_idle() { # pane -> 0 when the shell itself is in the foreground
+  herdr pane process-info --pane "$1" |
+    jq -e '.result.process_info | .foreground_process_group_id == .shell_pid' >/dev/null
+}
+
+cmd_respawn() { # <label>-<role>
+  local name=${1:-} role label info pane dir pgid i
+  [ -n "$name" ] || die "usage: hq respawn <label>-<role>"
+  role=${name##*-}; label=${name%-*}
+  [ "$role" != manager ] || die "respawn is for crew agents, not the manager"
+  role_kind "$role" >/dev/null || die "unknown role in '$name' (expected planner|specrev|impl|taskrev)"
+  if info=$(herdr agent get "$name" 2>/dev/null); then
+    pane=$(jq -r '.result.agent.pane_id' <<<"$info")
+    dir=$(jq -r '.result.agent.cwd' <<<"$info")
+  else
+    # The agent exited; its pane keeps the label hq team gave it.
+    # Prefer the caller's workspace: an older team may still have a pane with this label.
+    info=$(herdr pane list | jq -c --arg l "$name" --arg w "${HERDR_WORKSPACE_ID:-}" '
+      [.result.panes[]? | select(.label == $l)] as $all
+      | [$all[] | select(.workspace_id == $w)] | if length > 0 then . else $all end')
+    case $(jq length <<<"$info") in
+      0) die "no live agent or pane labelled $name" ;;
+      1) info=$(jq -c '.[0]' <<<"$info") ;;
+      *) die "$(jq length <<<"$info") panes are labelled $name — close the old team workspace, or run this from the team's workspace" ;;
+    esac
+    pane=$(jq -r '.pane_id' <<<"$info")
+    dir=$(jq -r '.cwd' <<<"$info")
+  fi
+  if ! shell_idle "$pane"; then
+    # Never signal the shell's own group — only the agent in the foreground.
+    pgid=$(herdr pane process-info --pane "$pane" | jq -r '.result.process_info | select(.foreground_process_group_id != .shell_pid) | .foreground_process_group_id')
+    [ -n "$pgid" ] && { kill -TERM -- "-$pgid" 2>/dev/null || true; }
+    for i in $(seq 1 20); do
+      shell_idle "$pane" && break
+      [ "$i" = 10 ] && [ -n "$pgid" ] && { kill -KILL -- "-$pgid" 2>/dev/null || true; }
+      sleep 0.5
+    done
+    shell_idle "$pane" || die "$name did not exit (pane $pane)"
+  fi
+  # herdr releases the old agent a moment after its process exits; starting
+  # before that fails with "agent present", so wait for the pane to be free.
+  for i in $(seq 1 20); do
+    [ "$(herdr pane get "$pane" | jq -r '.result.pane.agent // empty')" = "" ] && break
+    [ "$i" = 20 ] && die "herdr still shows an agent in pane $pane"
+    sleep "${HQ_POLL:-0.5}"
+  done
+  herdr pane run "$pane" clear >/dev/null   # drop the old session's text from the screen
+  start_role "$label" "$role" "$pane" "$dir"
+  prompt_agent "$name" "$(team_prompt_crew "$role" "$dir")" || die "$name was restarted but did not take its role prompt"
+}
+
+cmd_runlog() { # <path> [max] — tee that keeps <path> + <path>.1, together about <max>
+  local path=${1:-} max
+  [ -n "$path" ] || die "usage: <cmd> 2>&1 | hq runlog <path> [max]"
+  max=$(size_bytes "${2:-}") || die "bad size '${2:-}' (use e.g. 20M, 512K)"
+  : >"$path"
+  rm -f "$path.1"
+  # mawk buffers pipe input unless told to be interactive.
+  local awk=(awk)
+  if command -v gawk >/dev/null; then awk=(gawk)
+  elif command -v mawk >/dev/null; then awk=(mawk -W interactive)
+  fi
+  LC_ALL=C "${awk[@]}" -v path="$path" -v half=$((max / 2)) '
+    {
+      print; fflush()
+      print >> path; fflush(path)
+      bytes += length($0) + 1
+      if (bytes >= half) {
+        close(path)
+        system("mv -f \"" path "\" \"" path ".1\" && : > \"" path "\"")
+        bytes = 0
+      }
+    }'
+}
+
 run() { # kind dir [label]
   local kind=$1 dir label
   dir=$(realpath -e "${2:-.}" 2>/dev/null) || die "no such directory: ${2:-}"
@@ -75,13 +353,28 @@ run() { # kind dir [label]
   esac
 }
 
-case ${1:-} in
-  code|docs) run "$@" ;;
-  new)
-    read -rp "Layout [code/docs]: " kind
-    read -erp "Directory: " -i "$HOME/development/" dir
-    read -rp "Label [$(basename "${dir%/}")]: " label
-    run "$kind" "${dir/#\~/$HOME}" ${label:+"$label"}
-    ;;
-  *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
-esac
+main() {
+  [ "${HERDR_ENV:-}" = 1 ] || die "not running inside herdr"
+  command -v jq >/dev/null || die "jq is required"
+  case ${1:-} in
+    code|docs) run "$@" ;;
+    team) shift; cmd_team "$@" ;;
+    respawn) shift; cmd_respawn "$@" ;;
+    runlog) shift; cmd_runlog "$@" ;;
+    new)
+      read -rp "Layout [code/docs/team]: " kind
+      read -erp "Directory: " -i "$HOME/development/" dir
+      dir=${dir/#\~/$HOME}
+      if [ "$kind" = team ]; then
+        read -rp "Brief: " brief
+        cmd_team "$dir" "$brief"
+      else
+        read -rp "Label [$(basename "${dir%/}")]: " label
+        run "$kind" "$dir" ${label:+"$label"}
+      fi
+      ;;
+    *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  esac
+}
+
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then main "$@"; fi

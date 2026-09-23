@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# bootstrap — set up this herdr config on a new machine. Safe to re-run.
+#
+#   git clone <repo> ~/.config/herdr && ~/.config/herdr/bin/bootstrap
+#
+# Links `hq` into ~/.local/bin and installs herdr integrations for the agent
+# CLIs that are present. Logins (cursor-agent login, copilot /login) stay manual.
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")/.." && pwd)
+bin="$HOME/.local/bin"
+
+command -v herdr >/dev/null ||
+  { echo "bootstrap: herdr not found — install it first: curl -fsSL https://herdr.dev/install.sh | sh" >&2; exit 1; }
+command -v jq >/dev/null || echo "bootstrap: jq not found — hq needs it (e.g. sudo apt install jq)" >&2
+
+mkdir -p "$bin"
+if [ -e "$bin/hq" ] && [ ! -L "$bin/hq" ]; then
+  echo "bootstrap: $bin/hq exists and is not a link — move it aside and re-run" >&2
+  exit 1
+fi
+ln -sfn "$here/bin/hq" "$bin/hq"
+echo "linked $bin/hq -> $here/bin/hq"
+
+# herdr integration name : command that must be installed
+for pair in claude:claude omp:omp copilot:copilot cursor:cursor-agent; do
+  name=${pair%%:*} cmd=${pair#*:}
+  if command -v "$cmd" >/dev/null; then
+    herdr integration install "$name" >/dev/null && echo "installed herdr integration: $name"
+  else
+    echo "skipped: $cmd not installed (install it, then re-run bootstrap)"
+  fi
+done
+
+case ":$PATH:" in
+  *":$bin:"*) ;;
+  *) echo "note: $bin is not on your PATH — add it in your shell profile" ;;
+esac
