@@ -34,7 +34,7 @@ assert_eq "$(current_branch "$tmp")" main "current_branch"
 
 assert_eq "$(agent_flags claude ask hq/x)" "" "ask mode: no flags"
 assert_eq "$(agent_flags claude trusted main)" "" "trusted off hq/* branch: no flags"
-assert_eq "$(agent_flags claude trusted hq/x)" --dangerously-skip-permissions "claude trusted flag"
+assert_eq "$(agent_flags claude trusted hq/x | paste -sd' ')" '--dangerously-skip-permissions --settings {"skipDangerousModePermissionPrompt":true}' "claude trusted flags skip the bypass confirmation"
 assert_eq "$(agent_flags omp trusted hq/x)" --auto-approve "omp trusted flag"
 assert_eq "$(agent_flags copilot trusted hq/x)" --allow-all-tools "copilot trusted flag"
 assert_eq "$(agent_flags cursor trusted hq/x | paste -sd' ')" "--force --trust" "cursor trusted flags"

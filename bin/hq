@@ -66,7 +66,8 @@ current_branch() { git -C "$1" symbolic-ref --short -q HEAD || true; }
 agent_flags() { # kind autonomy branch -> one flag per line
   [ "$2" = trusted ] && [[ $3 == hq/* ]] || return 0
   case $1 in
-    claude) echo --dangerously-skip-permissions ;;
+    # --settings skips Claude's 'Bypass Permissions' confirmation (defaults to 'No, exit').
+    claude) printf '%s\n' --dangerously-skip-permissions --settings '{"skipDangerousModePermissionPrompt":true}' ;;
     omp) echo --auto-approve ;;
     copilot) echo --allow-all-tools ;;
     cursor) printf '%s\n' --force --trust ;;
