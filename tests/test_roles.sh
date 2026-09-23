@@ -15,4 +15,11 @@ assert_contains "$(cat roles/implementer.md)" "BLOCKED: spec issue" "implementer
 assert_contains "$(cat roles/implementer.md)" "runtime pane" "implementer: leaves the dev server alone"
 assert_contains "$(cat roles/task-review.md)" "Verdict: PASS" "task-review: verdict"
 assert_contains "$(cat roles/task-review.md)" "git status --porcelain" "task-review: sees untracked files"
+m=$(cat roles/manager.md 2>/dev/null)
+for s in "Gate 1" "Gate 2" "hq respawn" "herdr agent prompt" "herdr notification show" \
+         "never answer" ".hq/state" "2 rounds" "3 rounds" "runtime.log" "task NN:" \
+         "Mode: resume" "gh pr create" "hq/" "git status --porcelain" "autonomy=trusted" \
+         "hq runlog" "log_max" "runtime.log.1"; do
+  assert_contains "$m" "$s" "manager: mentions '$s'"
+done
 finish
