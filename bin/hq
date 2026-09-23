@@ -291,6 +291,13 @@ cmd_respawn() { # <label>-<role>
     done
     shell_idle "$pane" || die "$name did not exit (pane $pane)"
   fi
+  # herdr releases the old agent a moment after its process exits; starting
+  # before that fails with "agent present", so wait for the pane to be free.
+  for i in $(seq 1 20); do
+    [ "$(herdr pane get "$pane" | jq -r '.result.pane.agent // empty')" = "" ] && break
+    [ "$i" = 20 ] && die "herdr still shows an agent in pane $pane"
+    sleep "${HQ_POLL:-0.5}"
+  done
   start_role "$label" "$role" "$pane" "$dir"
   prompt_agent "$name" "$(team_prompt_crew "$role" "$dir")"
 }

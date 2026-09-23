@@ -31,6 +31,15 @@ out=$(FAKE_STATUS=gone FAKE_STATUS_READS=9 bin/hq respawn arch-specrev 2>&1); rc
 assert_eq "$rc" 1 "no agent and no labelled pane fails"
 assert_contains "$out" "no live agent or pane labelled arch-specrev" "clear error without a pane"
 
+# herdr releases the old agent a moment after its process exits: wait for that
+: >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.* "$FAKE_HERDR_LOG.paneget"
+FAKE_KIND=claude FAKE_CWD="$repo" FAKE_PANE_BUSY_READS=2 HQ_POLL=0 bin/hq respawn arch-taskrev >/dev/null 2>&1
+log=$(cat "$FAKE_HERDR_LOG")
+gets=$(grep -c '"pane","get","w9:p5"' <<<"$log")
+start=$(grep -n '"agent","start","arch-taskrev"' <<<"$log" | cut -d: -f1)
+last_get=$(grep -n '"pane","get","w9:p5"' <<<"$log" | tail -1 | cut -d: -f1)
+[ "$gets" -ge 3 ] && [ "$last_get" -lt "$start" ] && ok "start waits until herdr releases the old agent" || bad "started before the pane was free (gets=$gets)"
+
 out=$(bin/hq respawn arch-manager 2>&1); assert_contains "$out" "not the manager" "refuses manager"
 out=$(bin/hq respawn arch-bogus 2>&1); assert_contains "$out" "unknown role" "refuses unknown role"
 out=$(bin/hq respawn 2>&1); assert_contains "$out" "usage: hq respawn" "usage"
