@@ -14,12 +14,15 @@ Your first prompt gave you: Project root, Team label (`L` below), Crew agents, R
 ## Talking to the crew
 Crew: `L-planner`, `L-specrev`, `L-impl`, `L-taskrev`. They talk only to you.
 
-- Send work: `herdr agent prompt L-<role> "<instruction>" --wait --timeout <ms>`
+Your Bash tool kills any command after 10 minutes at most (2 by default), so never make one call wait longer than that. Run every herdr wait below with the Bash tool timeout set to 600000.
+
+- Send work (returns once it is submitted): `herdr agent prompt L-<role> "<instruction>"`
   Every instruction ends with: `When finished reply exactly DONE <path> or BLOCKED: <reason>.`
-- Timeouts: planner 1200000 (20 min), impl 1800000 (30 min), specrev and taskrev 600000 (10 min).
+- Wait in slices: `herdr agent wait L-<role> --timeout 540000` (9 min), repeated until the agent settles or its stage budget runs out.
+- Stage budgets: planner 20 min, impl 30 min, specrev and taskrev 10 min.
 - Then check: `herdr agent get L-<role>` (state) and `herdr agent read L-<role> --source recent-unwrapped --lines 40` (the reply line). Then read the file it names.
-- On timeout: read the pane. If it is still `working`, wait once more with `herdr agent wait L-<role> --timeout <same ms>`. If it is still not done, notify the human and wait.
-- Fresh session: `hq respawn L-<role>` — the agent restarts in its pane and re-reads its role file. Do this before every implementer and task-reviewer turn.
+- Budget used up: read the pane. If it is still `working`, allow one more budget. If it is still not done, notify the human and wait.
+- Fresh session: `HQ_READY_TIMEOUT=480 hq respawn L-<role>` (Bash tool timeout 600000) — the agent restarts in its pane and re-reads its role file. Do this before every implementer and task-reviewer turn. A non-zero exit means the agent is not primed: read its pane; if it is on a trust or login screen, notify the human and wait, then respawn again.
 
 ## Files you keep
 ```
@@ -29,7 +32,8 @@ Crew: `L-planner`, `L-specrev`, `L-impl`, `L-taskrev`. They talk only to you.
 ```
 
 ## Phase A — Setup
-1. `git status --porcelain` must be empty. If not, stop and tell the human to commit or stash.
+1. `git status --porcelain -- . ':!.hq'` must be empty (a hand-written `.hq/runtime` is expected and fine). If not, stop and tell the human to commit or stash.
+   If `.hq/` holds files from an earlier feature (`.hq/state`, `.hq/spec.md`, `.hq/tasks/`, `.hq/reviews/`, `.hq/summary.md`), move them to `.hq/archive/<YYYY-MM-DD>-<old branch>/` after step 2 and log it. Keep `.hq/runtime` and `.hq/architecture.md` in place.
 2. `git switch -c hq/<slug>` where `<slug>` is 2–5 words from the brief, kebab-case. Record `branch=` in state.
 3. Write `.hq/brief.md` with the brief verbatim under `# Brief`.
 4. Build `.hq/architecture.md`: read CLAUDE.md, AGENTS.md, `docs/architecture*`, `docs/adr*`, README. Condense into: components and boundaries, layering rules, naming conventions, patterns to follow, things never to do. If none of those docs exist, derive it from the code and put `DRAFT — confirm at Gate 1` on the first line.
@@ -43,12 +47,12 @@ Crew: `L-planner`, `L-specrev`, `L-impl`, `L-taskrev`. They talk only to you.
    autonomy=ask
    ```
    If `.hq/runtime` already exists, confirm it and keep every key in it, including `kind_<role>=<tool>` overrides (for example `kind_impl=claude` when a tool is not logged in).
-6. If `autonomy=trusted`, now that you are on an `hq/` branch run `hq respawn L-planner` and `hq respawn L-specrev` so they pick up auto-approve flags.
+6. If `autonomy=trusted`, now that you are on an `hq/` branch run `HQ_READY_TIMEOUT=480 hq respawn L-planner` and `HQ_READY_TIMEOUT=480 hq respawn L-specrev` so they pick up auto-approve flags.
 7. Start the runtime (see Runtime check, steps 1–3). If the server is already answering on `health` before you start it, another process owns the port: notify the human and wait.
 
 ## Phase B — Spec (max 2 rounds)
-1. `herdr agent prompt L-planner "Write .hq/spec.md and .hq/tasks/ for the brief in .hq/brief.md, within .hq/architecture.md. Round <spec_round>. When finished reply exactly DONE <path> or BLOCKED: <reason>." --wait --timeout 1200000`
-2. `herdr agent prompt L-specrev "Review .hq/spec.md and .hq/tasks/, round <spec_round>. When finished reply exactly DONE <path> or BLOCKED: <reason>." --wait --timeout 600000`
+1. `herdr agent prompt L-planner "Write .hq/spec.md and .hq/tasks/ for the brief in .hq/brief.md, within .hq/architecture.md. Round <spec_round>. When finished reply exactly DONE <path> or BLOCKED: <reason>."`, then wait in slices (budget 20 min)
+2. `herdr agent prompt L-specrev "Review .hq/spec.md and .hq/tasks/, round <spec_round>. When finished reply exactly DONE <path> or BLOCKED: <reason>."`, then wait in slices (budget 10 min)
 3. Your own check: does the spec fit `.hq/architecture.md`? Consistent names? Tasks in a sensible order? Append your findings under `### Manager` in the same round of `.hq/spec-review.md`.
 4. If the verdict is REVISE or you have major findings and spec_round < 2: increment spec_round, go to 1 (the planner reads the review). After 2 rounds, move every unresolved finding into the spec's Open questions.
 
@@ -59,10 +63,10 @@ Set phase=gate1. Run `herdr notification show "Spec ready for review" --body "<f
 
 ## Phase C — Task loop (one task at a time, in order, max 3 rounds each)
 For task NN, round R:
-1. `hq respawn L-impl`, then prompt: `"Implement .hq/tasks/NN-*.md, round R.<if R>1: Fix every finding in the latest round of .hq/reviews/NN.md.> When finished reply exactly DONE <path> or BLOCKED: <reason>."` with timeout 1800000.
+1. `HQ_READY_TIMEOUT=480 hq respawn L-impl`, then prompt: `"Implement .hq/tasks/NN-*.md, round R.<if R>1: Fix every finding in the latest round of .hq/reviews/NN.md.> When finished reply exactly DONE <path> or BLOCKED: <reason>."`, then wait in slices (budget 30 min).
    - `BLOCKED: spec issue`: read `## Spec issue`. A local fix (a name, an edge case, a file path) → amend the task yourself, log why, rerun step 1. Anything that changes interfaces, data, or `.hq/architecture.md` → notify the human, explain, wait for their decision.
 2. Runtime check (below). Write results into `.hq/reviews/NN.md` under `## Round R — runtime` (`clean`, or each error line / failed health / failed test).
-3. `hq respawn L-taskrev`, then prompt: `"Review task NN round R: .hq/tasks/NN-*.md against git diff HEAD and git status --porcelain. Runtime findings are in .hq/reviews/NN.md. When finished reply exactly DONE <path> or BLOCKED: <reason>."` with timeout 600000.
+3. `HQ_READY_TIMEOUT=480 hq respawn L-taskrev`, then prompt: `"Review task NN round R: .hq/tasks/NN-*.md against git diff HEAD and git status --porcelain. Runtime findings are in .hq/reviews/NN.md. When finished reply exactly DONE <path> or BLOCKED: <reason>."`, then wait in slices (budget 10 min).
 4. Verdict FIX (or runtime not clean): if R < 3, R=R+1, go to 1. After 3 rounds: stop, log the blocker, notify the human, and ask them to choose: split the task, amend the spec, take over, or skip.
 5. Verdict PASS and runtime clean: coherence check — read `git diff HEAD` against earlier tasks' commits and `.hq/architecture.md`: same naming, same layering, no duplicate helpers, no drift from the spec's interfaces. If you find drift, treat it as a FIX finding (append to `.hq/reviews/NN.md` under `### Manager`) and go to step 4.
 6. Commit: set `Status: done` in the task file, append to log, then `git add -A && git commit -m "task NN: <title>"`. Next task, round=1.
@@ -70,7 +74,7 @@ For task NN, round R:
 ## Runtime check
 1. If a server you started is running in RT: `herdr pane send-keys RT ctrl+c`, wait until `herdr pane process-info --pane RT` shows the shell in the foreground.
 2. `herdr pane run RT "<dev> 2>&1 | hq runlog .hq/runtime.log <log_max>"` (`log_max` from `.hq/runtime`, default 20M)
-3. Wait until up: if `health` is set, poll `curl -fsS <health>` once a second for up to 60 s; otherwise `herdr pane wait-output RT --regex "(listening|ready|started|Local:)" --timeout 60000`. Not up in time → runtime finding.
+3. Wait until up, for up to 60 s. `hq runlog` empties `.hq/runtime.log` on every start, so the log only holds this run: if `health` is set, poll `curl -fsS <health>` once a second; otherwise poll `grep -qE "(listening|ready|started|Local:)" .hq/runtime.log` once a second. Never wait on the pane's scrollback — it still shows the previous run. Not up in time → runtime finding.
 4. Run the `test` command yourself in your own shell. Failures → runtime finding.
 5. `grep -EnC3 "<errors>" .hq/runtime.log.1 .hq/runtime.log 2>/dev/null` → each match is a runtime finding; copy only these matches (with their 3 lines of context) into the review, never the whole log. If `.hq/runtime.log.1` exists, older output was dropped: add `log trimmed at <log_max>` to the runtime findings as a note (not a failure).
 
