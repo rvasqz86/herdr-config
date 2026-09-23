@@ -87,8 +87,15 @@ dev=npm run dev
 health=http://localhost:3000/health
 errors=(Error|Exception|Traceback|ECONNREFUSED|panic)
 test=npm test
+log_max=20M         # runtime log cap (see below)
 autonomy=ask        # or: trusted
 ```
+
+The runtime pane runs `<dev> 2>&1 | hq runlog .hq/runtime.log <log_max>`: the full
+server output (not only errors), cleared on each restart, rotated to
+`.hq/runtime.log.1` at half of `log_max` so both files together stay about
+`log_max`. Both are gitignored. Reviews get only matching error lines with
+context; a rotation is reported as "log trimmed".
 
 ## Flow
 
@@ -156,7 +163,7 @@ The manager itself always runs with normal permissions.
 ## Files to build
 
 ```
-~/.config/herdr/bin/hq                 add `team` + `--resume` (layout + starts)
+~/.config/herdr/bin/hq                 add `team`, `--resume`, `respawn`, `runlog`
 ~/.config/herdr/roles/manager.md
 ~/.config/herdr/roles/planner.md
 ~/.config/herdr/roles/spec-review.md
