@@ -22,5 +22,14 @@ assert_contains "$log" '"pane","rename","w9:p1","writer · claude"' "docs: write
 grep -qE '^\["pane","rename","w9:p[0-9]+","review · omp"\]$' <<<"$log" && ok "docs: reviewer labelled" || bad "docs: reviewer not labelled"
 assert_contains "$log" '"shell"]' "docs: shell labelled"
 
+# hq new: relative answers land under ~/development, ~ and full paths as typed
+mkdir -p "$root/development/proj" "$root/elsewhere"
+: >"$FAKE_HERDR_LOG"
+printf 'code\nproj\n\n' | HOME=$root bin/hq new >/dev/null 2>&1
+assert_contains "$(cat "$FAKE_HERDR_LOG")" '"--cwd","'"$root/development/proj"'","--label","proj"' "new: relative dir under ~/development"
+: >"$FAKE_HERDR_LOG"
+printf 'docs\n~/elsewhere\nmine\n' | HOME=$root bin/hq new >/dev/null 2>&1
+assert_contains "$(cat "$FAKE_HERDR_LOG")" '"--cwd","'"$root/elsewhere"'","--label","mine"' "new: ~ path and label"
+
 rm -rf "$root"
 finish

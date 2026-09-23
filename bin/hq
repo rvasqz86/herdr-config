@@ -61,6 +61,8 @@ kind_for() { # dir role -> tool: env HQ_KIND_<role>, else kind_<role> in .hq/run
   echo "$k"
 }
 
+abs_dir() { (cd "$1" 2>/dev/null && pwd -P); } # dir -> absolute path, fails if missing
+
 current_branch() { git -C "$1" symbolic-ref --short -q HEAD || true; }
 
 agent_flags() { # kind autonomy branch -> one flag per line
@@ -91,7 +93,7 @@ start_agent() { # name kind pane [agent-args...]
   local name=$1 kind=$2 pane=$3 extra=()
   shift 3
   [ $# -gt 0 ] && extra=(-- "$@")
-  if ! herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout 60000 "${extra[@]}" >/dev/null 2>&1; then
+  if ! herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout 60000 ${extra[@]+"${extra[@]}"} >/dev/null 2>&1; then
     echo "hq: $name ($kind) needs attention in its pane (trust prompt / login?)" >&2
   fi
 }
@@ -114,12 +116,12 @@ new_tab() { # ws dir label -> root pane id
 }
 
 start_role() { # label role pane dir
-  local kind flags=()
+  local kind flag flags=()
   kind=$(kind_for "$4" "$2") || die "bad agent kind for $2"
   if [ "$2" != manager ]; then
-    mapfile -t flags < <(agent_flags "$kind" "$(runtime_get "$4" autonomy)" "$(current_branch "$4")")
+    while IFS= read -r flag; do flags+=("$flag"); done < <(agent_flags "$kind" "$(runtime_get "$4" autonomy)" "$(current_branch "$4")")
   fi
-  start_agent "$1-$2" "$kind" "$3" "${flags[@]}"
+  start_agent "$1-$2" "$kind" "$3" ${flags[@]+"${flags[@]}"}
 }
 
 # Screens an agent shows before it can take input. herdr may report an agent
@@ -162,7 +164,7 @@ prompt_agent() { # name text [--no-wait]
   local out wait=(--wait --timeout 180000)
   [ "${3:-}" = --no-wait ] && wait=()
   await_ready "$1" || return 1
-  if ! out=$(herdr agent prompt "$1" "$2" "${wait[@]}" 2>&1); then
+  if ! out=$(herdr agent prompt "$1" "$2" ${wait[@]+"${wait[@]}"} 2>&1); then
     echo "hq: $1 did not take its role prompt: $(jq -r '.error.message // empty' <<<"$out" 2>/dev/null || echo "$out")" >&2
     return 1
   fi
@@ -193,17 +195,17 @@ team_names_free() { # label
 }
 
 layout_code() { # dir label
-  local dir=$1 label=$2 name ws root tab right below_left below_right shell tool
+  local dir=$1 label=$2 name ws root tab right below_left below_right shell pair
   name=$(slug "$label")
   read -r ws root tab < <(new_workspace "$dir" "$label")
   herdr tab rename "$tab" agents >/dev/null
   right=$(split "$root" right "$dir")
   below_left=$(split "$root" down "$dir")
   below_right=$(split "$right" down "$dir")
-  local -A pane=([claude]=$root [omp]=$right [copilot]=$below_left [cursor]=$below_right)
-  for tool in claude omp copilot cursor; do
-    label "${pane[$tool]}" "$tool"
-    start_agent "${name}-$tool" "$tool" "${pane[$tool]}"
+  for pair in "claude $root" "omp $right" "copilot $below_left" "cursor $below_right"; do
+    set -- $pair   # tool pane
+    label "$2" "$1"
+    start_agent "${name}-$1" "$1" "$2"
   done
   shell=$(new_tab "$ws" "$dir" shell)
   label "$shell" shell
@@ -226,7 +228,7 @@ layout_docs() { # dir label
 }
 
 layout_team() { # dir label mode brief
-  local dir=$1 label=$2 mode=$3 brief=$4 name ws root tab crew runtime specrev impl taskrev role unprimed=()
+  local dir=$1 label=$2 mode=$3 brief=$4 name ws root tab crew runtime specrev impl taskrev role pair unprimed=()
   name=$(slug "$label")
   # Resolve every tool first so a typo in .hq/runtime cannot half-build the team.
   for role in manager planner specrev impl taskrev; do kind_for "$dir" "$role" >/dev/null || exit 1; done
@@ -241,13 +243,13 @@ layout_team() { # dir label mode brief
   specrev=$(split "$crew" right "$dir")
   impl=$(split "$crew" down "$dir")
   taskrev=$(split "$specrev" down "$dir")
-  local -A pane=([planner]=$crew [specrev]=$specrev [impl]=$impl [taskrev]=$taskrev)
   # Start everyone first so all trust/login screens show up at once.
   start_role "$name" manager "$root" "$dir"
-  for role in planner specrev impl taskrev; do
+  for pair in "planner $crew" "specrev $specrev" "impl $impl" "taskrev $taskrev"; do
+    set -- $pair   # role pane
     # The label outlives the agent, so `hq respawn` can find the pane after a crash.
-    herdr pane rename "${pane[$role]}" "$name-$role" >/dev/null
-    start_role "$name" "$role" "${pane[$role]}" "$dir"
+    label "$2" "$name-$1"
+    start_role "$name" "$1" "$2" "$dir"
   done
   for role in planner specrev impl taskrev; do
     prompt_agent "$name-$role" "$(team_prompt_crew "$role" "$dir")" || unprimed+=("$name-$role")
@@ -256,7 +258,7 @@ layout_team() { # dir label mode brief
   prompt_agent "$name-manager" "$(team_prompt_manager "$dir" "$name" "$runtime" "$mode" "$brief")" --no-wait ||
     unprimed+=("$name-manager")
   [ ${#unprimed[@]} -eq 0 ] ||
-    echo "hq: not primed: ${unprimed[*]} — fix their panes, then hq respawn <name> (or close the workspace and rerun)" >&2
+    echo "hq: not primed: ${unprimed[*]-} — fix their panes, then hq respawn <name> (or close the workspace and rerun)" >&2
   herdr workspace focus "$ws" >/dev/null
 }
 
@@ -264,7 +266,7 @@ cmd_team() {
   local usage='usage: hq team <dir> "<brief>" [label] | hq team --resume <dir> [label]'
   local resume=0 dir
   if [ "${1:-}" = --resume ]; then resume=1; shift; fi
-  dir=$(realpath -e "${1:-}" 2>/dev/null) || die "$usage"
+  dir=$(abs_dir "${1:-}") || die "$usage"
   git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 || die "$dir is not a git repository"
   if [ $resume = 1 ]; then
     [ -f "$dir/.hq/state" ] || die "nothing to resume: $dir/.hq/state not found"
@@ -352,7 +354,7 @@ cmd_runlog() { # <path> [max] — tee that keeps <path> + <path>.1, together abo
 
 run() { # kind dir [label]
   local kind=$1 dir label
-  dir=$(realpath -e "${2:-.}" 2>/dev/null) || die "no such directory: ${2:-}"
+  dir=$(abs_dir "${2:-.}") || die "no such directory: ${2:-}"
   label=${3:-$(basename "$dir")}
   case $kind in
     code) layout_code "$dir" "$label" ;;
@@ -371,8 +373,12 @@ main() {
     runlog) shift; cmd_runlog "$@" ;;
     new)
       read -rp "Layout [code/docs/team]: " kind
-      read -erp "Directory: " -i "$HOME/development/" dir
+      local base=$HOME/development shown
+      [ -d "$base" ] || base=$PWD
+      shown=$base; case $base in "$HOME"/*) shown="~${base#"$HOME"}" ;; esac
+      read -erp "Directory (under $shown, or a full path): " dir
       dir=${dir/#\~/$HOME}
+      case $dir in /*) ;; *) dir=$base/$dir ;; esac
       if [ "$kind" = team ]; then
         read -rp "Brief: " brief
         cmd_team "$dir" "$brief"

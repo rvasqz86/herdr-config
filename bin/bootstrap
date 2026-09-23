@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # bootstrap — set up this herdr config on a new machine. Safe to re-run.
 #
-#   git clone <repo> ~/.config/herdr && ~/.config/herdr/bin/bootstrap
+#   git clone https://github.com/rvasqz86/herdr-config.git ~/.config/herdr
+#   ~/.config/herdr/bin/bootstrap
 #
 # Links `hq` into ~/.local/bin and installs herdr integrations for the agent
 # CLIs that are present. Logins (cursor-agent login, copilot /login) stay manual.

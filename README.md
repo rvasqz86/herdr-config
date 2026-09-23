@@ -4,13 +4,40 @@ My [herdr](https://herdr.dev) setup: keybindings, popups, and `hq`, a launcher f
 
 ## Install on a new machine
 
-```bash
-curl -fsSL https://herdr.dev/install.sh | sh        # if herdr is not installed
-git clone <this repo> ~/.config/herdr
-~/.config/herdr/bin/bootstrap
-```
+Works on Linux and macOS (including macOS's built-in bash 3.2). You need `git`, `jq` and [herdr](https://herdr.dev).
 
-`bootstrap` links `hq` into `~/.local/bin` and installs herdr integrations for the agent CLIs it finds (claude, omp, copilot, cursor-agent). It is safe to re-run after installing another CLI. Logins stay manual: `cursor-agent login`, and `/login` inside `copilot`.
+1. Install herdr, if it isn't already:
+
+   ```bash
+   curl -fsSL https://herdr.dev/install.sh | sh
+   ```
+
+2. Clone this repo to `~/.config/herdr`. The repo is private, so sign in first with `gh auth login` (or use an SSH key):
+
+   ```bash
+   git clone https://github.com/rvasqz86/herdr-config.git ~/.config/herdr
+   ```
+
+   If git says `destination path '~/.config/herdr' already exists`, herdr has already written a default config there. Move it aside and clone again:
+
+   ```bash
+   mv ~/.config/herdr ~/.config/herdr.orig
+   git clone https://github.com/rvasqz86/herdr-config.git ~/.config/herdr
+   ```
+
+3. Run the bootstrap script:
+
+   ```bash
+   ~/.config/herdr/bin/bootstrap
+   ```
+
+   It links `hq` into `~/.local/bin` and installs herdr integrations for whichever agent CLIs it finds (claude, omp, copilot, cursor-agent). Run it again after you install another CLI.
+
+4. Log in to each agent CLI once: `cursor-agent login`, and `/login` inside `copilot`.
+
+5. Restart herdr (or run `herdr server reload-config`) so it picks up the keybindings, then press `ctrl+alt+n` for the `hq new` picker.
+
+To update later: `git -C ~/.config/herdr pull`.
 
 ## hq
 
