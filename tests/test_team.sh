@@ -82,7 +82,13 @@ assert_contains "$out" "arch-manager is not running" "missing agent: reported"
 # herdr reports agents on trust/login screens as idle: hq must read the screen
 for screen in "❯ No, exit
    Yes, I trust this folder" "Press any key to log in..." "2. Yes, and remember this folder for future sessions" \
-  "WARNING: Claude Code running in Bypass Permissions mode"; do
+  "WARNING: Claude Code running in Bypass Permissions mode" \
+  " Yes, I trust this
+ folder" \
+  "Press any key to lo
+g in..." \
+  " ❯ No,
+ exit"; do
   : >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.*; rm -f "$FAKE_HERDR_LOG.reads"
   out=$(FAKE_SCREEN="$screen" FAKE_SCREEN_READS=2 HQ_POLL=0 bin/hq team "$repo" "b" arch 2>&1); log=$(cat "$FAKE_HERDR_LOG")
   first=$(head -1 <<<"$screen")

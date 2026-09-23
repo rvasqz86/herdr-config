@@ -119,11 +119,12 @@ start_role() { # label role pane dir
 }
 
 # Screens an agent shows before it can take input. herdr may report an agent
-# sitting on one of these as idle, so hq reads the screen too.
-STARTUP_SCREEN='bypass permissions mode|trust this folder|trust the files|do you trust|remember this folder|press any key to log in|please log in|not logged in'
+# sitting on one of these as idle, so hq reads the screen too. Narrow panes
+# soft-wrap anywhere, even mid-word, so matching ignores all whitespace.
+STARTUP_SCREEN='no,exit|bypasspermissionsmode|trustthisfolder|trustthefiles|doyoutrust|rememberthisfolder|pressanykeytologin|pleaselogin|notloggedin'
 
 on_startup_screen() { # name
-  herdr agent read "$1" --source visible --lines 60 2>/dev/null | grep -qiE "$STARTUP_SCREEN"
+  herdr agent read "$1" --source visible --lines 60 2>/dev/null | tr -d '[:space:]' | grep -qiE "$STARTUP_SCREEN"
 }
 
 # Wait until an agent can take a prompt. Never type into a startup screen:
