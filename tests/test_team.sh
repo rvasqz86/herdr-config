@@ -24,6 +24,11 @@ assert_contains "$log" '"shell"]' "manager tab shell labelled"
 for pair in manager:claude planner:omp specrev:copilot impl:cursor taskrev:claude; do
   assert_contains "$log" '"agent","start","arch-'"${pair%%:*}"'","--kind","'"${pair#*:}"'"' "starts ${pair%%:*} as ${pair#*:}"
 done
+# Agents only read inside the project unless told otherwise; the role files live elsewhere.
+for r in manager planner specrev impl taskrev; do
+  grep -F '"agent","start","arch-'"$r"'"' <<<"$log" | grep -qF '"--add-dir","'"$PWD/roles"'"' &&
+    ok "$r may read the roles dir" || bad "$r not given --add-dir roles"
+done
 assert_eq "$(grep -c '"agent","prompt"' <<<"$log")" 5 "five first prompts"
 assert_contains "$log" "roles/planner.md" "planner gets its role file"
 assert_contains "$log" 'Runtime pane: w9:p' "manager told runtime pane"
@@ -130,5 +135,19 @@ stale="returns 401 when not logged in
 $(seq 1 30)"
 out=$(FAKE_SCREEN="$stale" FAKE_SCREEN_READS=99 HQ_POLL=0 HQ_READY_TIMEOUT=2 bin/hq team "$repo" "b" arch 2>&1)
 assert_not_contains "$out" "startup screen" "old session text above the fold is ignored"
+# hq finds its roles next to the real script, wherever the repo was cloned
+clone="$root/elsewhere/herdr"; mkdir -p "$clone" "$root/home" "$root/bin"
+cp -R bin roles "$clone/"; ln -s "$clone/bin/hq" "$root/bin/hq"
+: >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.*; rm -rf "$repo/.hq"; git -C "$repo" checkout -q main
+HOME="$root/home" "$root/bin/hq" team "$repo" "b" cl >/dev/null 2>&1
+assert_contains "$(cat "$FAKE_HERDR_LOG")" "$clone/roles/planner.md" "roles found via the symlinked script"
+
+# a missing role file stops hq team before it builds anything
+rm "$clone/roles/spec-review.md"; : >"$FAKE_HERDR_LOG"
+out=$(HOME="$root/home" "$root/bin/hq" team "$repo" "b" cl2 2>&1); rc=$?
+assert_eq "$rc" 1 "missing role file exits 1"
+assert_contains "$out" "$clone/roles/spec-review.md" "names the missing role file"
+assert_not_contains "$(cat "$FAKE_HERDR_LOG")" '"workspace","create"' "no workspace without role files"
+
 rm -rf "$root"
 finish

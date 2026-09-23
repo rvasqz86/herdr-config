@@ -14,7 +14,16 @@
 set -euo pipefail
 
 die() { echo "hq: $*" >&2; exit 1; }
-HQ_HOME=${HQ_HOME:-$HOME/.config/herdr}
+
+hq_home() { # the repo this script lives in, following the ~/.local/bin/hq link (no readlink -f on macOS)
+  local p=${BASH_SOURCE[0]} t
+  while [ -L "$p" ]; do
+    t=$(readlink "$p")
+    case $t in /*) p=$t ;; *) p=$(dirname "$p")/$t ;; esac
+  done
+  (cd "$(dirname "$p")/.." && pwd -P)
+}
+HQ_HOME=${HQ_HOME:-$(hq_home)}
 ROLES_DIR=${ROLES_DIR:-$HQ_HOME/roles}
 HQ_LOCAL=${HQ_LOCAL:-$HQ_HOME/hq.local}   # this machine's tools; not in git (see hq.local.example)
 
@@ -138,6 +147,8 @@ new_tab() { # ws dir label -> root pane id
 start_role() { # label role pane dir
   local kind flag flags=()
   kind=$(kind_for "$4" "$2") || die "bad agent kind for $2"
+  # Agents only read inside the project by default; the role files live in this repo.
+  case $kind in claude|omp|copilot|cursor) flags=(--add-dir "$ROLES_DIR") ;; esac
   if [ "$2" != manager ]; then
     while IFS= read -r flag; do flags+=("$flag"); done < <(agent_flags "$kind" "$(runtime_get "$4" autonomy)" "$(current_branch "$4")")
   fi
@@ -257,7 +268,10 @@ layout_team() { # dir label mode brief
   local dir=$1 label=$2 mode=$3 brief=$4 name ws root tab crew runtime specrev impl taskrev role pair unprimed=()
   name=$(slug "$label")
   # Resolve every tool first so a typo in .hq/runtime cannot half-build the team.
-  for role in manager planner specrev impl taskrev; do kind_for "$dir" "$role" >/dev/null || exit 1; done
+  for role in manager planner specrev impl taskrev; do
+    kind_for "$dir" "$role" >/dev/null || exit 1
+    [ -r "$(role_file "$role")" ] || die "role file not found: $(role_file "$role") — is the herdr config repo complete? (git -C $HQ_HOME status)"
+  done
   team_names_free "$name"
   read -r ws root tab < <(new_workspace "$dir" "$label")
   herdr tab rename "$tab" manager >/dev/null
