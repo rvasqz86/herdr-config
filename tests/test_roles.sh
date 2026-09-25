@@ -55,7 +55,7 @@ done
 assert_not_contains "$c" "1200000" "ceo: no 20-min single tool call"
 # review fixes: commits by pathspec, re-classifies before filing, never loosens its own limits,
 # follow-ups land in the position file, a first-session question waits for the baseline
-assert_eq "$(grep -c -- '-- company\`' roles/ceo.md)" 2 "ceo: both commits use the company pathspec"
+assert_eq "$(grep -cF -- '-- company`' roles/ceo.md)" 2 "ceo: both commits use the company pathspec"
 assert_contains "$c" "Re-classify" "ceo: re-classifies escalation before filing"
 assert_contains "$c" "Never change \`spend_limit\` or \`escalate\`" "ceo: never loosens its own limits"
 assert_contains "$c" "## Follow-up" "ceo: follow-ups go into the position file"
