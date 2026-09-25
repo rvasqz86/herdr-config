@@ -37,9 +37,9 @@ slug() {
 
 role_kind() {
   case $1 in
-    manager|taskrev) echo claude ;;
-    planner) echo omp ;;
-    specrev) echo copilot ;;
+    manager|taskrev|ceo) echo claude ;;
+    planner|cto) echo omp ;;
+    specrev|coo) echo copilot ;;
     impl) echo cursor ;;
     *) return 1 ;;
   esac
@@ -52,8 +52,17 @@ role_file() {
     specrev) echo "$ROLES_DIR/spec-review.md" ;;
     impl) echo "$ROLES_DIR/implementer.md" ;;
     taskrev) echo "$ROLES_DIR/task-review.md" ;;
+    ceo|cto|coo) echo "$ROLES_DIR/$1.md" ;;
     *) return 1 ;;
   esac
+}
+
+is_team_crew() { case $1 in planner|specrev|impl|taskrev) return 0 ;; *) return 1 ;; esac; }
+boss_of() { case $1 in cto|coo) echo ceo ;; *) echo manager ;; esac; }   # who a crew agent waits for
+
+# Where a project sets a role's tool: hq team reads .hq/runtime, hq exec reads company/settings.
+role_conf() { # dir role -> file
+  case $2 in ceo|cto|coo) echo "$1/company/settings" ;; *) echo "$1/.hq/runtime" ;; esac
 }
 
 conf_get() { # file key -> value, empty if unset
@@ -72,7 +81,7 @@ valid_kind() { # tool what
 # First set wins: env HQ_KIND_<role>, the project's .hq/runtime, this machine's hq.local, the default.
 kind_for() { # dir role -> tool
   local env="HQ_KIND_$2" k
-  k=${!env:-$(runtime_get "$1" "kind_$2")}
+  k=${!env:-$(conf_get "$(role_conf "$1" "$2")" "kind_$2")}
   k=${k:-$(local_get "kind_$2")}
   k=${k:-$(role_kind "$2")} || return 1
   valid_kind "$k" "$2" || return 1
@@ -149,7 +158,7 @@ start_role() { # label role pane dir
   kind=$(kind_for "$4" "$2") || die "bad agent kind for $2"
   # Agents only read inside the project by default; the role files live in this repo.
   case $kind in claude|omp|copilot|cursor) flags=(--add-dir "$ROLES_DIR") ;; esac
-  if [ "$2" != manager ]; then
+  if is_team_crew "$2"; then   # autonomy flags are a build-pipeline thing; exec roles always ask
     while IFS= read -r flag; do flags+=("$flag"); done < <(agent_flags "$kind" "$(runtime_get "$4" autonomy)" "$(current_branch "$4")")
   fi
   start_agent "$1-$2" "$kind" "$3" ${flags[@]+"${flags[@]}"}
@@ -202,8 +211,9 @@ prompt_agent() { # name text [--no-wait]
 }
 
 team_prompt_crew() { # role dir
-  printf 'Your role file is %s. Read it now and follow it for this whole session. Project root: %s. Do nothing else until the manager sends you a task. Reply READY.' \
-    "$(role_file "$1")" "$2"
+  local boss; boss=$(boss_of "$1"); [ "$boss" = ceo ] && boss=CEO
+  printf 'Your role file is %s. Read it now and follow it for this whole session. Project root: %s. Do nothing else until the %s sends you a task. Reply READY.' \
+    "$(role_file "$1")" "$2" "$boss"
 }
 
 team_prompt_manager() { # dir label runtime_pane mode brief
@@ -326,8 +336,11 @@ cmd_respawn() { # <label>-<role>
   local name=${1:-} role label info pane dir pgid i
   [ -n "$name" ] || die "usage: hq respawn <label>-<role>"
   role=${name##*-}; label=${name%-*}
-  [ "$role" != manager ] || die "respawn is for crew agents, not the manager"
-  role_kind "$role" >/dev/null || die "unknown role in '$name' (expected planner|specrev|impl|taskrev)"
+  case $role in
+    manager) die "respawn is for crew agents, not the manager" ;;
+    ceo) die "respawn is for crew agents; restart the CEO with: hq exec --resume <dir>" ;;
+  esac
+  role_kind "$role" >/dev/null || die "unknown role in '$name' (expected planner|specrev|impl|taskrev|cto|coo)"
   if info=$(herdr agent get "$name" 2>/dev/null); then
     pane=$(jq -r '.result.agent.pane_id' <<<"$info")
     dir=$(jq -r '.result.agent.cwd' <<<"$info")

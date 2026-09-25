@@ -75,4 +75,19 @@ out=$(bin/hq respawn arch-manager 2>&1); assert_contains "$out" "not the manager
 out=$(bin/hq respawn arch-bogus 2>&1); assert_contains "$out" "unknown role" "refuses unknown role"
 out=$(bin/hq respawn 2>&1); assert_contains "$out" "usage: hq respawn" "usage"
 rm -rf "$root"
+# exec roles: cto/coo respawn like crew, ceo is refused
+co="$root/co"; mkdir -p "$co/company"; git -C "$co" init -q -b main
+echo kind_cto=claude >"$co/company/settings"
+: >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.* "$FAKE_HERDR_LOG.paneget" "$FAKE_HERDR_LOG.proc"
+FAKE_KIND=claude FAKE_CWD="$co" bin/hq respawn acme-cto >/dev/null 2>&1
+rc=$?; log=$(cat "$FAKE_HERDR_LOG")
+assert_eq "$rc" 0 "respawn cto exits 0"
+assert_contains "$log" '"agent","start","acme-cto","--kind","claude","--pane","w9:p5"' "cto restarted with the company/settings tool"
+assert_contains "$log" '"--add-dir"' "cto may read the roles dir"
+assert_not_contains "$log" '--auto-approve' "exec roles never get autonomy flags"
+assert_contains "$log" "roles/cto.md" "cto re-sent its role"
+assert_contains "$log" "until the CEO sends you" "cto told to wait for the CEO"
+out=$(bin/hq respawn acme-ceo 2>&1); rc=$?
+assert_eq "$rc" 1 "respawn ceo refused"
+assert_contains "$out" "hq exec --resume" "ceo refusal points to --resume"
 finish
