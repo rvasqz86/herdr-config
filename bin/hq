@@ -101,7 +101,7 @@ code_tools() { # -> 1 to 4 tools for hq code, from hq.local or the default
   echo ${tools:-claude omp copilot cursor}
 }
 
-abs_dir() { (cd "$1" 2>/dev/null && pwd -P); } # dir -> absolute path, fails if missing
+abs_dir() { [ -n "$1" ] && (cd "$1" 2>/dev/null && pwd -P); } # dir -> absolute path, fails if missing or empty
 
 current_branch() { git -C "$1" symbolic-ref --short -q HEAD || true; }
 
@@ -349,6 +349,9 @@ layout_exec() { # dir label mode question
     [ -r "$(role_file "$role")" ] || die "role file not found: $(role_file "$role") — is the herdr config repo complete? (git -C $HQ_HOME status)"
   done
   team_names_free "$name"
+  # Only now, with every check passed, does the company folder get its history. (-b needs git 2.28.)
+  git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 ||
+    git -C "$dir" init -q -b main 2>/dev/null || git -C "$dir" init -q || die "could not git init $dir"
   read -r ws root tab < <(new_workspace "$dir" "$label")
   herdr tab rename "$tab" exec >/dev/null
   label "$root" "$name-ceo"
@@ -379,9 +382,6 @@ cmd_exec() {
   local resume=0 dir
   if [ "${1:-}" = --resume ]; then resume=1; shift; fi
   dir=$(abs_dir "${1:-}") || die "$usage"
-  # The company documents get history from day one. (-b needs git 2.28; older git falls back to its default branch.)
-  git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 ||
-    git -C "$dir" init -q -b main 2>/dev/null || git -C "$dir" init -q || die "could not git init $dir"
   if [ $resume = 1 ]; then
     [ -f "$dir/company/brief.md" ] || die "nothing to resume: $dir/company/brief.md not found (run hq exec $dir to start the company)"
     layout_exec "$dir" "${2:-$(basename "$dir")}" resume ""

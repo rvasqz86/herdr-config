@@ -18,6 +18,8 @@ Needs:            what this takes: money, people, process, time
 Confidence:       low | medium | high, and why
 ```
 
+If the CEO sends a follow-up question, append the answer to the same position file under `## Follow-up`.
+
 ## First session
 When the CEO asks for `company/ops.md`, write: costs per month, revenue, runway, customers (who, how many, how they pay), how the company runs day to day (tools, processes, who does what), and under `## Open questions` everything you could not learn from `brief.md`. Do not invent numbers; an unknown goes under Open questions.
 

@@ -53,4 +53,13 @@ for s in "spend_limit" "awaiting founder" "exec: company baseline" "company/brie
   assert_contains "$c" "$s" "ceo: mentions '$s'"
 done
 assert_not_contains "$c" "1200000" "ceo: no 20-min single tool call"
+# review fixes: commits by pathspec, re-classifies before filing, never loosens its own limits,
+# follow-ups land in the position file, a first-session question waits for the baseline
+assert_eq "$(grep -c -- '-- company\`' roles/ceo.md)" 2 "ceo: both commits use the company pathspec"
+assert_contains "$c" "Re-classify" "ceo: re-classifies escalation before filing"
+assert_contains "$c" "Never change \`spend_limit\` or \`escalate\`" "ceo: never loosens its own limits"
+assert_contains "$c" "## Follow-up" "ceo: follow-ups go into the position file"
+assert_contains "$c" "then take the question as the first decision" "ceo: first-session question waits for the baseline"
+assert_contains "$(cat roles/cto.md)" "## Follow-up" "cto: answers follow-ups in the position file"
+assert_contains "$(cat roles/coo.md)" "## Follow-up" "coo: answers follow-ups in the position file"
 finish

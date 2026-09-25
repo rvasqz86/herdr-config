@@ -18,6 +18,8 @@ Needs:            what this takes: time, money, people, tools, technical changes
 Confidence:       low | medium | high, and why
 ```
 
+If the CEO sends a follow-up question, append the answer to the same position file under `## Follow-up`.
+
 ## First session
 When the CEO asks for `company/tech.md`, write: the stack and hosting, what exists in this folder (say "no code yet" if nothing), how healthy it is (tests, deploys, monitoring, debt), technical risks, and what the next 90 days in `brief.md` need technically. Read the code before you describe it; do not guess.
 

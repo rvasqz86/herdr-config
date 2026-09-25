@@ -97,6 +97,19 @@ assert_contains "$out" "already running" "label in use explained"
 # no directory
 out=$(bin/hq exec "$root/nope" "q" 2>&1); rc=$?
 assert_eq "$rc" 1 "missing dir exits 1"
+# no arguments at all: usage, and the current folder is left alone
+plain="$root/plain"; mkdir -p "$plain"
+out=$(cd "$plain" && "$OLDPWD/bin/hq" exec 2>&1); rc=$?
+assert_eq "$rc" 1 "no-arg hq exec exits 1"
+assert_contains "$out" "usage:" "no-arg hq exec prints usage"
+[ -d "$plain/.git" ] && bad "no-arg hq exec git-inits the cwd" || ok "no-arg hq exec leaves the cwd alone"
+# a failed run never leaves a repo behind
+fresh="$root/fresh"; mkdir -p "$fresh"
+bin/hq exec --resume "$fresh" >/dev/null 2>&1
+[ -d "$fresh/.git" ] && bad "failed resume left a .git" || ok "failed resume leaves no .git"
+mkdir -p "$fresh/company"; echo 'kind_cto=bogus' >"$fresh/company/settings"
+bin/hq exec "$fresh" "q" >/dev/null 2>&1
+[ -d "$fresh/.git" ] && bad "bad kind left a .git" || ok "bad kind leaves no .git"
 
 # picker: exec asks for a question
 mkdir -p "$root/development/startup"
