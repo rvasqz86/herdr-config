@@ -18,8 +18,7 @@ the CTO start `hq team` for build work and the COO track it. Both build on the f
 ## Command
 
 ```
-hq exec <dir> [label]            open the team for the startup in <dir>
-hq exec <dir> "<question>"       same, and put the first question to the CEO
+hq exec <dir> ["<question>"] [label]   open the team for the startup in <dir>; the question, if given, goes to the CEO
 hq exec --resume <dir> [label]   rebuild after a restart; the CEO reports where things stand
 hq new → exec                    picker; asks for a folder, then an optional first question
 ```
@@ -31,8 +30,7 @@ and `team_names_free` refuses a label already in use.
 company documents get history from the first commit. A dirty tree is allowed (this is the founder's
 folder, not a build branch).
 
-A second positional argument that is not `--resume` is the first question. It is passed verbatim to
-the CEO's first prompt, never executed (same handling as the `hq team` brief).
+The second positional argument is always the first question (use "" to give a label without a question). It is passed verbatim to the CEO's first prompt, never executed (same handling as the hq team brief).
 
 ## Layout
 

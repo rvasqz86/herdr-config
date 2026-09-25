@@ -6,6 +6,8 @@
 #                                    (pick other tools per machine in hq.local)
 #   hq team <dir> "<brief>" [label]  manager-driven pipeline (see roles/manager.md)
 #   hq team --resume <dir> [label]   rebuild the team for an existing .hq/
+#   hq exec <dir> ["<question>"] [label]  CEO/CTO/COO for the startup in <dir> (see roles/ceo.md)
+#   hq exec --resume <dir> [label]   rebuild the management team for an existing company/
 #   hq respawn <label>-<role>        fresh session for a crew agent
 #   <cmd> 2>&1 | hq runlog <file> [max]  tee with rotation (default max 20M)
 #   hq new                           interactive picker (bound to ctrl+alt+n)
@@ -229,6 +231,18 @@ $5
 EOF
 }
 
+exec_prompt_ceo() { # dir label mode question
+  cat <<EOF
+Your role file is $(role_file ceo). Read it now and follow it for this whole session.
+Company root: $1
+Team label: $2
+Execs: $2-cto ($(kind_for "$1" cto)), $2-coo ($(kind_for "$1" coo))
+Mode: $3
+Question:
+${4:-(none — greet the founder and wait)}
+EOF
+}
+
 team_names_free() { # label
   local taken
   taken=$(herdr agent list | jq -r --arg p "$1-" '.result.agents[]? | .name // empty | select(startswith($p))')
@@ -327,6 +341,55 @@ cmd_team() {
   fi
 }
 
+layout_exec() { # dir label mode question
+  local dir=$1 label=$2 mode=$3 question=$4 name ws root tab cto coo role pair unprimed=()
+  name=$(slug "$label")
+  for role in ceo cto coo; do
+    kind_for "$dir" "$role" >/dev/null || exit 1
+    [ -r "$(role_file "$role")" ] || die "role file not found: $(role_file "$role") — is the herdr config repo complete? (git -C $HQ_HOME status)"
+  done
+  team_names_free "$name"
+  read -r ws root tab < <(new_workspace "$dir" "$label")
+  herdr tab rename "$tab" exec >/dev/null
+  label "$root" "$name-ceo"
+  # The CEO keeps 60% of the width; CTO and COO stack in the right column.
+  cto=$(herdr pane split "$root" --direction right --ratio 0.6 --cwd "$dir" --no-focus | jq -r '.result.pane.pane_id')
+  coo=$(split "$cto" down "$dir")
+  label "$(new_tab "$ws" "$dir" shell)" shell
+  # Start everyone first so all trust/login screens show up at once.
+  start_role "$name" ceo "$root" "$dir"
+  for pair in "cto $cto" "coo $coo"; do
+    set -- $pair   # role pane
+    label "$2" "$name-$1"
+    start_role "$name" "$1" "$2" "$dir"
+  done
+  for role in cto coo; do
+    prompt_agent "$name-$role" "$(team_prompt_crew "$role" "$dir")" || unprimed+=("$name-$role")
+  done
+  # No --wait: the CEO's first turn may be a whole interview.
+  prompt_agent "$name-ceo" "$(exec_prompt_ceo "$dir" "$name" "$mode" "$question")" --no-wait ||
+    unprimed+=("$name-ceo")
+  [ ${#unprimed[@]} -eq 0 ] ||
+    echo "hq: not primed: ${unprimed[*]-} — fix their panes, then hq respawn <name> (or close the workspace and rerun)" >&2
+  herdr workspace focus "$ws" >/dev/null
+}
+
+cmd_exec() {
+  local usage='usage: hq exec <dir> ["<question>"] [label] | hq exec --resume <dir> [label]'
+  local resume=0 dir
+  if [ "${1:-}" = --resume ]; then resume=1; shift; fi
+  dir=$(abs_dir "${1:-}") || die "$usage"
+  # The company documents get history from day one. (-b needs git 2.28; older git falls back to its default branch.)
+  git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 ||
+    git -C "$dir" init -q -b main 2>/dev/null || git -C "$dir" init -q || die "could not git init $dir"
+  if [ $resume = 1 ]; then
+    [ -f "$dir/company/brief.md" ] || die "nothing to resume: $dir/company/brief.md not found (run hq exec $dir to start the company)"
+    layout_exec "$dir" "${2:-$(basename "$dir")}" resume ""
+  else
+    layout_exec "$dir" "${3:-$(basename "$dir")}" new "${2:-}"
+  fi
+}
+
 shell_idle() { # pane -> 0 when the shell itself is in the foreground
   herdr pane process-info --pane "$1" |
     jq -e '.result.process_info | .foreground_process_group_id == .shell_pid' >/dev/null
@@ -422,25 +485,30 @@ main() {
   case ${1:-} in
     code|docs) run "$@" ;;
     team) shift; cmd_team "$@" ;;
+    exec) shift; cmd_exec "$@" ;;
     respawn) shift; cmd_respawn "$@" ;;
     runlog) shift; cmd_runlog "$@" ;;
     new)
-      read -rp "Layout [code/docs/team]: " kind
+      read -rp "Layout [code/docs/team/exec]: " kind
       local base=$HOME/development shown
       [ -d "$base" ] || base=$PWD
       shown=$base; case $base in "$HOME"/*) shown="~${base#"$HOME"}" ;; esac
       read -erp "Directory (under $shown, or a full path): " dir
       dir=${dir/#\~/$HOME}
       case $dir in /*) ;; *) dir=$base/$dir ;; esac
-      if [ "$kind" = team ]; then
-        read -rp "Brief: " brief
-        cmd_team "$dir" "$brief"
-      else
-        read -rp "Label [$(basename "${dir%/}")]: " label
-        run "$kind" "$dir" ${label:+"$label"}
-      fi
+      case $kind in
+        team)
+          read -rp "Brief: " brief
+          cmd_team "$dir" "$brief" ;;
+        exec)
+          read -rp "First question (optional): " question
+          cmd_exec "$dir" "$question" ;;
+        *)
+          read -rp "Label [$(basename "${dir%/}")]: " label
+          run "$kind" "$dir" ${label:+"$label"} ;;
+      esac
       ;;
-    *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+    *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
   esac
 }
 
