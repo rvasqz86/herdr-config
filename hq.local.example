@@ -16,3 +16,8 @@
 #kind_specrev=copilot
 #kind_impl=cursor
 #kind_taskrev=claude
+
+# hq exec roles (a company's company/settings overrides these)
+#kind_ceo=claude
+#kind_cto=omp
+#kind_coo=copilot

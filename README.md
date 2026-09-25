@@ -51,7 +51,9 @@ Run inside a herdr pane.
 | `hq docs <dir> [label]` | claude drafting next to a shell, omp reviewing in its own tab |
 | `hq team <dir> "<brief>" [label]` | manager-driven pipeline: spec → review → per-task implement / runtime check / review → final pass, stopping for you at the spec and at sign-off |
 | `hq team --resume <dir> [label]` | rebuild the team for an existing `.hq/` |
-| `hq respawn <label>-<role>` | fresh session for a crew agent |
+| `hq exec <dir> ["<question>"] [label]` | CEO, CTO and COO for a startup: you ask, they write positions, the CEO decides and files a memo in `company/`; money, people and customer decisions wait for you |
+| `hq exec --resume <dir> [label]` | rebuild the management team for an existing `company/` |
+| `hq respawn <label>-<role>` | fresh session for a crew agent (team crew, or cto/coo) |
 | `hq new` | interactive picker (`ctrl+alt+n`) |
 
 ## Per-machine tools (`hq.local`)
@@ -63,6 +65,7 @@ By default, `hq` uses these tools:
 | `hq code` | claude, omp, copilot, cursor |
 | `hq docs` writer / reviewer | claude / omp |
 | `hq team` manager, planner, specrev, impl, taskrev | claude, omp, copilot, cursor, claude |
+| `hq exec` ceo, cto, coo | claude, omp, copilot |
 
 If a machine doesn't have one of these, say it has no claude, change the choice in that machine's `~/.config/herdr/hq.local`. `bootstrap` creates the file from [`hq.local.example`](hq.local.example), with every line commented out. It isn't in git, so each machine keeps its own and `git pull` never touches it.
 
@@ -83,17 +86,30 @@ Every key:
 | `code_tools` | `hq code` | 1–4 tools, separated by spaces, filled left-to-right, then top-to-bottom |
 | `docs_writer`, `docs_reviewer` | `hq docs` | one tool each |
 | `kind_manager`, `kind_planner`, `kind_specrev`, `kind_impl`, `kind_taskrev` | `hq team` | one tool per role |
+| `kind_ceo`, `kind_cto`, `kind_coo` | `hq exec` | one tool per role |
 
 Tool names: `claude`, `omp`, `copilot`, `cursor`, or any other kind herdr supports. `hq` refuses unknown names before it opens any panes. Changes apply to the next workspace you open; there's nothing to restart.
 
 For `hq team`, if more than one place sets a role's tool, the first of these wins:
 
 1. the environment variable `HQ_KIND_<role>`, for one run (`HQ_KIND_impl=claude hq team …`)
-2. `kind_<role>` in the project's `.hq/runtime`
+2. `kind_<role>` in the project's `.hq/runtime` (team roles) or `company/settings` (exec roles)
 3. `kind_<role>` in this machine's `hq.local`
 4. the default
 
 Only Claude has been tried as the manager. Another tool should work if it can run shell commands that last up to 10 minutes.
+
+## Per-company settings for `hq exec`
+
+Optional `company/settings` in the startup's folder (the CEO writes the defaults if it is missing):
+
+```
+spend_limit=100                       # escalate any option costing more than this
+escalate=money people customers       # remove a word to let the CEO decide those alone
+kind_cto=claude                       # swap a role's tool (ceo, cto, coo)
+```
+
+Everything the team writes lives in `company/`: `brief.md`, `tech.md`, `ops.md`, `decisions/` (one memo per decision plus `log.md`) and `positions/` (each exec's written position). The folder is committed by the CEO after the first session and after every decision.
 
 ## Per-project settings for `hq team`
 
