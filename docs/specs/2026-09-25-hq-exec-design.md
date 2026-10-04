@@ -18,8 +18,7 @@ the CTO start `hq team` for build work and the COO track it. Both build on the f
 ## Command
 
 ```
-hq exec <dir> [label]            open the team for the startup in <dir>
-hq exec <dir> "<question>"       same, and put the first question to the CEO
+hq exec <dir> ["<question>"] [label]   open the team for the startup in <dir>; the question, if given, goes to the CEO
 hq exec --resume <dir> [label]   rebuild after a restart; the CEO reports where things stand
 hq new → exec                    picker; asks for a folder, then an optional first question
 ```
@@ -31,8 +30,7 @@ and `team_names_free` refuses a label already in use.
 company documents get history from the first commit. A dirty tree is allowed (this is the founder's
 folder, not a build branch).
 
-A second positional argument that is not `--resume` is the first question. It is passed verbatim to
-the CEO's first prompt, never executed (same handling as the `hq team` brief).
+The second positional argument is always the first question (use "" to give a label without a question). It is passed verbatim to the CEO's first prompt, never executed (same handling as the hq team brief).
 
 ## Layout
 
@@ -134,7 +132,8 @@ If `company/brief.md` is missing, the CEO:
    and the brief. Prompts the COO: write `ops.md` from the brief, listing unknowns under
    `## Open questions`. Both in parallel, 15-minute budget.
 4. Reads both, asks the founder the open questions it can't answer, and commits everything as
-   `exec: company baseline`.
+   `exec: company baseline` (with the `-- company` pathspec). A question given on the command
+   line is acknowledged, then taken as the first decision after the baseline.
 
 If `brief.md` exists, the CEO reads `brief.md`, `tech.md`, `ops.md`, `settings` and
 `decisions/log.md` at the start of every session and says in two lines where the company stands.
@@ -154,20 +153,25 @@ The founder types a question into the CEO pane. The CEO:
    `company/positions/NNNN-<role>.md`. When finished reply exactly DONE <path> or BLOCKED: <reason>."
    Then `herdr agent wait` each, in 9-minute slices, budget 10 minutes per exec.
 3. **Resolve.** Reads both positions. If they conflict or leave a gap, asks that exec one
-   follow-up, at most one per exec per decision, via `agent prompt --wait`.
+   follow-up, at most one per exec per decision, via `agent prompt --wait`; the exec appends the
+   answer to its position file under `## Follow-up`, so the record stays complete.
 4. **Write the memo.** Fills Positions, Decision, Rationale, Risks accepted, Next steps (each with
    an owner and a date).
-5. **Escalate or file.**
+5. **Escalate or file.** First re-classifies against the decision reached and every option the
+   positions added, and updates `Escalation:`.
    - Escalation `none`: `Status: decided`. Posts a five-line summary in its pane.
    - Otherwise: `Status: awaiting founder`, `herdr notification show "Decision NNNN needs you"
      --body "<title>: <escalation>" --sound request`, posts the memo summary and asks for
      `approve`, `reject`, or changes. `approve` → decided. `reject` → rejected, with the founder's
      reason under `## Founder`. Changes → recorded under `## Founder`, back to step 3.
 6. **Log and commit.** Updates the `log.md` line's status, `git add company && git commit -m
-   "exec: NNNN <title>"`.
+   "exec: NNNN <title>" -- company` (the pathspec keeps the founder's own staged files out).
 
 Questions that are not decisions ("what is our biggest risk?") are answered from the files without
 the loop, and the CEO says it is not filing a decision.
+
+The CEO never changes `spend_limit` or `escalate` in `company/settings` unless the founder asks
+in its pane, and records that request in the log.
 
 Rules the CEO follows, from `roles/manager.md`: never answer another agent's permission prompt
 (notify the founder instead), never re-send a prompt after a timeout without reading the pane, never
