@@ -332,7 +332,8 @@ cmd_team() {
   local usage='usage: hq team <dir> "<brief>" [label] | hq team --resume <dir> [label]'
   local resume=0 dir
   if [ "${1:-}" = --resume ]; then resume=1; shift; fi
-  dir=$(abs_dir "${1:-}") || die "$usage"
+  [ -n "${1:-}" ] || die "$usage"
+  dir=$(abs_dir "$1") || die "no such directory: $1"
   git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 || die "$dir is not a git repository"
   if [ $resume = 1 ]; then
     [ -f "$dir/.hq/state" ] || die "nothing to resume: $dir/.hq/state not found"
@@ -383,7 +384,8 @@ cmd_exec() {
   local usage='usage: hq exec <dir> ["<question>"] [label] | hq exec --resume <dir> [label]'
   local resume=0 dir
   if [ "${1:-}" = --resume ]; then resume=1; shift; fi
-  dir=$(abs_dir "${1:-}") || die "$usage"
+  [ -n "${1:-}" ] || die "$usage"
+  dir=$(abs_dir "$1") || die "no such directory: $1"
   if [ $resume = 1 ]; then
     [ -f "$dir/company/brief.md" ] || die "nothing to resume: $dir/company/brief.md not found (run hq exec $dir to start the company)"
     layout_exec "$dir" "${2:-$(basename "$dir")}" resume ""

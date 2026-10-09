@@ -58,7 +58,7 @@ assert_not_contains "$(cat "$FAKE_HERDR_LOG")" '"workspace","create"' "no layout
 # usage errors
 out=$(bin/hq team "$repo" 2>&1); assert_contains "$out" "usage: hq team" "missing brief"
 out=$(bin/hq team "$root" "b" 2>&1); assert_contains "$out" "not a git repository" "non-git dir"
-out=$(bin/hq team --resume "$root/nope" 2>&1); assert_contains "$out" "usage: hq team" "resume bad dir"
+out=$(bin/hq team --resume "$root/nope" 2>&1); assert_contains "$out" "no such directory" "resume bad dir"
 rm -rf "$repo/.hq"
 out=$(bin/hq team --resume "$repo" 2>&1); assert_contains "$out" "nothing to resume" "resume without state"
 
@@ -156,4 +156,9 @@ assert_contains "$out" "$clone/roles/spec-review.md" "names the missing role fil
 assert_not_contains "$(cat "$FAKE_HERDR_LOG")" '"workspace","create"' "no workspace without role files"
 
 rm -rf "$root"
+# a missing directory is named, not hidden behind the usage line
+out=$(bin/hq team --resume "$root/nowhere" 2>&1); rc=$?
+assert_eq "$rc" 1 "missing dir exits 1"
+assert_contains "$out" "no such directory: $root/nowhere" "missing dir named"
+assert_not_contains "$out" "usage:" "missing dir does not print usage"
 finish
