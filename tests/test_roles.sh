@@ -17,8 +17,8 @@ assert_contains "$(cat roles/task-review.md)" "Verdict: PASS" "task-review: verd
 assert_contains "$(cat roles/task-review.md)" "git status --porcelain" "task-review: sees untracked files"
 m=$(cat roles/manager.md 2>/dev/null)
 for s in "Gate 1" "Gate 2" "hq respawn" "herdr agent prompt" "herdr notification show" \
-         "never answer" ".hq/state" "2 rounds" "3 rounds" "runtime.log" "task NN:" \
-         "Mode: resume" "gh pr create" "hq/" "git status --porcelain" "autonomy=trusted" \
+         "never answer" ".hq/state" "2 rounds" "3 rounds" "runtime.log" "chore(hq): spec" \
+         "Mode: resume" "gh pr create" "<type>/<slug>" "git status --porcelain" "autonomy=trusted" \
          "hq runlog" "log_max" "runtime.log.1"; do
   assert_contains "$m" "$s" "manager: mentions '$s'"
 done
@@ -31,6 +31,14 @@ assert_contains "$m" "HQ_READY_TIMEOUT=480 hq respawn" "manager: respawn fits th
 assert_not_contains "$m" "herdr pane wait-output RT" "manager: no scrollback-based readiness wait"
 assert_contains "$m" "grep -qE" "manager: readiness read from the fresh log"
 assert_contains "$m" ".hq/archive/" "manager: archives an earlier feature's .hq files"
+# conventional branches and commits
+assert_contains "$m" '`feat` (new capability, the default), `fix`, `chore`, `docs`, `refactor`, `perf` or `test`' "manager: picks a conventional branch type"
+assert_not_contains "$m" "hq/<slug>" "manager: no hq/ branches"
+assert_not_contains "$m" 'task NN: <title>' "manager: no task NN: commits"
+assert_contains "$m" '<type>(<scope>): <title>' "manager: conventional task commits"
+assert_contains "$m" "chore(hq): summary" "manager: conventional summary commit"
+assert_contains "$(cat roles/planner.md)" "Type: feat|fix|chore|docs|refactor|perf|test" "planner: task template carries a type"
+assert_contains "$(cat roles/planner.md)" "Scope:" "planner: task template carries a scope"
 # exec roles
 for f in cto coo; do
   body=$(cat "roles/$f.md" 2>/dev/null)

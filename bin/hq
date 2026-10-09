@@ -105,8 +105,10 @@ abs_dir() { [ -n "$1" ] && (cd "$1" 2>/dev/null && pwd -P); } # dir -> absolute 
 
 current_branch() { git -C "$1" symbolic-ref --short -q HEAD || true; }
 
-agent_flags() { # kind autonomy branch -> one flag per line
-  [ "$2" = trusted ] && [[ $3 == hq/* ]] || return 0
+# Trusted mode only on the branch the manager created and recorded in .hq/state,
+# never on main or on a branch the human is working on.
+agent_flags() { # kind autonomy branch state_branch -> one flag per line
+  [ "$2" = trusted ] && [ -n "$3" ] && [ "$3" = "$4" ] || return 0
   case $1 in
     # --settings skips Claude's 'Bypass Permissions' confirmation (defaults to 'No, exit').
     claude) printf '%s\n' --dangerously-skip-permissions --settings '{"skipDangerousModePermissionPrompt":true}' ;;
@@ -161,7 +163,7 @@ start_role() { # label role pane dir
   # Agents only read inside the project by default; the role files live in this repo.
   case $kind in claude|omp|copilot|cursor) flags=(--add-dir "$ROLES_DIR") ;; esac
   if is_team_crew "$2"; then   # autonomy flags are a build-pipeline thing; exec roles always ask
-    while IFS= read -r flag; do flags+=("$flag"); done < <(agent_flags "$kind" "$(runtime_get "$4" autonomy)" "$(current_branch "$4")")
+    while IFS= read -r flag; do flags+=("$flag"); done < <(agent_flags "$kind" "$(runtime_get "$4" autonomy)" "$(current_branch "$4")" "$(conf_get "$4/.hq/state" branch)")
   fi
   start_agent "$1-$2" "$kind" "$3" ${flags[@]+"${flags[@]}"}
 }
@@ -422,6 +424,7 @@ cmd_respawn() { # <label>-<role>
     pane=$(jq -r '.pane_id' <<<"$info")
     dir=$(jq -r '.cwd' <<<"$info")
   fi
+  [ "${HERDR_PANE_ID:-}" != "$pane" ] || die "$name lives in this pane; run hq respawn from another pane (the shell pane)"
   if ! shell_idle "$pane"; then
     # Never signal the shell's own group — only the agent in the foreground.
     pgid=$(herdr pane process-info --pane "$pane" | jq -r '.result.process_info | select(.foreground_process_group_id != .shell_pid) | .foreground_process_group_id')
