@@ -49,7 +49,7 @@ Run inside a herdr pane.
 | --- | --- |
 | `hq code <dir> [label]` | claude, omp, copilot, cursor in a 2×2 grid, plus a shell tab |
 | `hq docs <dir> [label]` | claude drafting next to a shell, omp reviewing in its own tab |
-| `hq team <dir> "<brief>" [label]` | manager-driven pipeline: spec → review → per-task implement / runtime check / review → final pass, stopping for you at the spec and at sign-off |
+| `hq team <dir> "<brief>" [label]` | manager-driven pipeline on a `<type>/<slug>` branch with conventional commits: spec → review → per-task implement / runtime check / review → final pass, stopping for you at the spec and at sign-off |
 | `hq team --resume <dir> [label]` | rebuild the team for an existing `.hq/` |
 | `hq exec <dir> ["<question>"] [label]` | CEO, CTO and COO for a startup: you ask, they write positions, the CEO decides and files a memo in `company/`; money, people and customer decisions wait for you |
 | `hq exec --resume <dir> [label]` | rebuild the management team for an existing `company/` |
@@ -121,7 +121,7 @@ health=http://localhost:3000/health
 errors=(Error|Exception|Traceback|ECONNREFUSED|panic)
 test=npm test
 log_max=20M
-autonomy=ask          # trusted = crew agents auto-approve, only on hq/* branches
+autonomy=ask          # trusted = crew agents auto-approve, only on the branch the manager created
 kind_impl=claude      # swap a role's tool (planner, specrev, impl, taskrev)
 ```
 

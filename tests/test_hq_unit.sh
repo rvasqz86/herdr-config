@@ -32,12 +32,14 @@ assert_eq "$(runtime_get "$tmp" autonomy)" trusted "runtime_get strips trailing 
 git -C "$tmp" init -q -b main
 assert_eq "$(current_branch "$tmp")" main "current_branch"
 
-assert_eq "$(agent_flags claude ask hq/x)" "" "ask mode: no flags"
-assert_eq "$(agent_flags claude trusted main)" "" "trusted off hq/* branch: no flags"
-assert_eq "$(agent_flags claude trusted hq/x | paste -sd' ')" '--dangerously-skip-permissions --settings {"skipDangerousModePermissionPrompt":true}' "claude trusted flags skip the bypass confirmation"
-assert_eq "$(agent_flags omp trusted hq/x)" --auto-approve "omp trusted flag"
-assert_eq "$(agent_flags copilot trusted hq/x)" --allow-all-tools "copilot trusted flag"
-assert_eq "$(agent_flags cursor trusted hq/x | paste -sd' ')" "--force --trust" "cursor trusted flags"
+assert_eq "$(agent_flags claude ask feat/x feat/x)" "" "ask mode: no flags"
+assert_eq "$(agent_flags claude trusted main feat/x)" "" "trusted off the team's branch: no flags"
+assert_eq "$(agent_flags claude trusted feat/x "")" "" "trusted with no branch recorded in state: no flags"
+assert_eq "$(agent_flags claude trusted "" "")" "" "trusted on a detached HEAD: no flags"
+assert_eq "$(agent_flags claude trusted feat/x feat/x | paste -sd' ')" '--dangerously-skip-permissions --settings {"skipDangerousModePermissionPrompt":true}' "claude trusted flags skip the bypass confirmation"
+assert_eq "$(agent_flags omp trusted fix/y fix/y)" --auto-approve "omp trusted flag"
+assert_eq "$(agent_flags copilot trusted feat/x feat/x)" --allow-all-tools "copilot trusted flag"
+assert_eq "$(agent_flags cursor trusted feat/x feat/x | paste -sd' ')" "--force --trust" "cursor trusted flags"
 
 assert_eq "$(size_bytes 20M)" 20971520 "size_bytes M"
 assert_eq "$(size_bytes 512K)" 524288 "size_bytes K"

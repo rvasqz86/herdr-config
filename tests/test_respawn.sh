@@ -3,15 +3,15 @@ cd "$(dirname "$0")/.." || exit 1
 source tests/lib.sh
 root=$(mktemp -d)
 export PATH="$PWD/tests/fake-herdr:$PATH" HERDR_ENV=1 FAKE_HERDR_LOG="$root/log"
-repo="$root/r"; mkdir -p "$repo/.hq"; git -C "$repo" init -q -b hq/feat
-echo autonomy=trusted >"$repo/.hq/runtime"
+repo="$root/r"; mkdir -p "$repo/.hq"; git -C "$repo" init -q -b feat/x
+echo autonomy=trusted >"$repo/.hq/runtime"; echo branch=feat/x >"$repo/.hq/state"
 
 FAKE_KIND=cursor FAKE_CWD="$repo" bin/hq respawn arch-impl >/dev/null 2>&1
 rc=$?; log=$(cat "$FAKE_HERDR_LOG")
 assert_eq "$rc" 0 "respawn exits 0"
 assert_contains "$log" '"agent","get","arch-impl"' "looks up the agent"
 assert_contains "$log" '"agent","start","arch-impl","--kind","cursor","--pane","w9:p5"' "restarts in same pane"
-assert_contains "$log" '"--force","--trust"' "keeps trusted flags on hq/* branch"
+assert_contains "$log" '"--force","--trust"' "keeps trusted flags on the recorded branch"
 assert_contains "$log" "roles/implementer.md" "re-sends role prompt"
 
 : >"$FAKE_HERDR_LOG"
@@ -86,6 +86,11 @@ assert_contains "$log" '"--add-dir"' "cto may read the roles dir"
 assert_not_contains "$log" '--auto-approve' "exec roles never get autonomy flags"
 assert_contains "$log" "roles/cto.md" "cto re-sent its role"
 assert_contains "$log" "until the CEO sends you" "cto told to wait for the CEO"
+# never from inside the pane being restarted: respawn would kill itself
+out=$(HERDR_PANE_ID=w9:p5 FAKE_KIND=cursor FAKE_CWD="$repo" bin/hq respawn arch-impl 2>&1); rc=$?
+assert_eq "$rc" 1 "respawn refuses to run inside the target pane"
+assert_contains "$out" "another pane" "respawn says to use another pane"
+
 # the manager and the CEO can be restored after a herdr restart: fresh session, resume mode
 : >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.* "$FAKE_HERDR_LOG.paneget" "$FAKE_HERDR_LOG.proc"
 out=$(FAKE_STATUS=gone FAKE_STATUS_READS=1 FAKE_PANE_LABEL=arch-manager FAKE_PANE_EXTRA=runtime FAKE_CWD="$repo" bin/hq respawn arch-manager 2>&1); rc=$?

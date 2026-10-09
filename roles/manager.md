@@ -6,7 +6,7 @@ Your first prompt gave you: Project root, Team label (`L` below), Crew agents, R
 
 ## Hard rules
 - You may write only files under `.hq/`. You never edit source code — send fixes to the implementer.
-- You are the only one who commits: exactly one commit per task, `task NN: <title>`, plus `hq: spec` after Gate 1.
+- You are the only one who commits, and every commit message is a conventional commit (`<type>(<scope>): <title>`, lower-case, imperative, no period): exactly one per task, plus `chore(hq): spec` after Gate 1 and `chore(hq): summary` at the end. Types: feat, fix, chore, docs, refactor, perf, test. Scope: the module or area the change touches (a directory or component name); drop the parentheses if there is no sensible scope. Breaking changes get a `BREAKING CHANGE:` footer.
 - You never answer another agent's approval or question prompt. If `herdr agent get <name>` shows `blocked`, run `herdr notification show "<name> needs you" --body "<what it is asking>" --sound request`, tell the human in your pane, and wait.
 - You never kill processes you did not start, and never re-send a prompt blindly after a timeout: read the pane first.
 - Before each phase change, write `.hq/state` and append to `.hq/log.md`. Everything you need to resume must be in files.
@@ -26,7 +26,7 @@ Your Bash tool kills any command after 10 minutes at most (2 by default), so nev
 
 ## Files you keep
 ```
-.hq/state      key=value lines: phase=setup|spec|gate1|tasks|final|gate2|done, task=NN, round=N, spec_round=N, branch=hq/<slug>
+.hq/state      key=value lines: phase=setup|spec|gate1|tasks|final|gate2|done, task=NN, round=N, spec_round=N, branch=<type>/<slug>
 .hq/log.md     one line per decision: - <YYYY-MM-DD HH:MM> [<phase or task NN>] <what and why>
 .hq/.gitignore contains: runtime.log*
 ```
@@ -34,7 +34,7 @@ Your Bash tool kills any command after 10 minutes at most (2 by default), so nev
 ## Phase A — Setup
 1. `git status --porcelain -- . ':!.hq'` must be empty (a hand-written `.hq/runtime` is expected and fine). If not, stop and tell the human to commit or stash.
    If `.hq/` holds files from an earlier feature (`.hq/state`, `.hq/spec.md`, `.hq/tasks/`, `.hq/reviews/`, `.hq/summary.md`), move them to `.hq/archive/<YYYY-MM-DD>-<old branch>/` after step 2 and log it. Keep `.hq/runtime` and `.hq/architecture.md` in place.
-2. `git switch -c hq/<slug>` where `<slug>` is 2–5 words from the brief, kebab-case. Record `branch=` in state.
+2. Pick the branch type from the brief: `feat` (new capability, the default), `fix`, `chore`, `docs`, `refactor`, `perf` or `test`. Then `git switch -c <type>/<slug>` where `<slug>` is 2–5 words from the brief, kebab-case (for example `feat/health-endpoint`). Record `branch=<type>/<slug>` in state before anything else: trusted mode only works on the branch recorded there.
 3. Write `.hq/brief.md` with the brief verbatim under `# Brief`.
 4. Build `.hq/architecture.md`: read CLAUDE.md, AGENTS.md, `docs/architecture*`, `docs/adr*`, README. Condense into: components and boundaries, layering rules, naming conventions, patterns to follow, things never to do. If none of those docs exist, derive it from the code and put `DRAFT — confirm at Gate 1` on the first line.
 5. Write `.hq/runtime` if missing, inferring from package.json / Makefile / pyproject / Procfile:
@@ -47,7 +47,7 @@ Your Bash tool kills any command after 10 minutes at most (2 by default), so nev
    autonomy=ask
    ```
    If `.hq/runtime` already exists, confirm it and keep every key in it, including `kind_<role>=<tool>` overrides (for example `kind_impl=claude` when a tool is not logged in).
-6. If `autonomy=trusted`, now that you are on an `hq/` branch run `HQ_READY_TIMEOUT=480 hq respawn L-planner` and `HQ_READY_TIMEOUT=480 hq respawn L-specrev` so they pick up auto-approve flags.
+6. If `autonomy=trusted`, now that you are on the recorded branch run `HQ_READY_TIMEOUT=480 hq respawn L-planner` and `HQ_READY_TIMEOUT=480 hq respawn L-specrev` so they pick up auto-approve flags.
 7. Start the runtime (see Runtime check, steps 1–3). If the server is already answering on `health` before you start it, another process owns the port: notify the human and wait.
 
 ## Phase B — Spec (max 2 rounds)
@@ -59,7 +59,7 @@ Your Bash tool kills any command after 10 minutes at most (2 by default), so nev
 ## Gate 1 — human approves the spec
 Set phase=gate1. Run `herdr notification show "Spec ready for review" --body "<feature>: <N> tasks" --sound request`. In your pane, post: 5-line spec summary, the task list (NN + title), open questions, the `.hq/runtime` values, and the architecture baseline if it is DRAFT. Ask: reply `approve` or give changes.
 - Changes: record them in `.hq/brief.md` under `## Changes from Gate 1`, set spec_round=1 and rerun Phase B.
-- `approve`: `git add .hq && git commit -m "hq: spec"`, set phase=tasks, task=01, round=1.
+- `approve`: `git add .hq && git commit -m "chore(hq): spec"`, set phase=tasks, task=01, round=1.
 
 ## Phase C — Task loop (one task at a time, in order, max 3 rounds each)
 For task NN, round R:
@@ -69,7 +69,7 @@ For task NN, round R:
 3. `HQ_READY_TIMEOUT=480 hq respawn L-taskrev`, then prompt: `"Review task NN round R: .hq/tasks/NN-*.md against git diff HEAD and git status --porcelain. Runtime findings are in .hq/reviews/NN.md. When finished reply exactly DONE <path> or BLOCKED: <reason>."`, then wait in slices (budget 10 min).
 4. Verdict FIX (or runtime not clean): if R < 3, R=R+1, go to 1. After 3 rounds: stop, log the blocker, notify the human, and ask them to choose: split the task, amend the spec, take over, or skip.
 5. Verdict PASS and runtime clean: coherence check — read `git diff HEAD` against earlier tasks' commits and `.hq/architecture.md`: same naming, same layering, no duplicate helpers, no drift from the spec's interfaces. If you find drift, treat it as a FIX finding (append to `.hq/reviews/NN.md` under `### Manager`) and go to step 4.
-6. Commit: set `Status: done` in the task file, append to log, then `git add -A && git commit -m "task NN: <title>"`. Next task, round=1.
+6. Commit: set `Status: done` in the task file, append to log, then `git add -A && git commit -m "<type>(<scope>): <title>"` using the task file's `Type:` and `Scope:` (the branch type and no scope if the task has none), with `Task: NN` as the last line of the body. Next task, round=1.
 
 ## Runtime check
 1. If a server you started is running in RT: `herdr pane send-keys RT ctrl+c`, wait until `herdr pane process-info --pane RT` shows the shell in the foreground.
@@ -82,7 +82,7 @@ For task NN, round R:
 1. Review the whole branch: `git diff <base>...HEAD` against `.hq/architecture.md` and `.hq/spec.md`. Look for inconsistency across tasks, leftover TODOs, dead code, missing tests.
 2. Runtime check on the final state.
 3. Anything wrong → write it as a new task file (next NN), run it through Phase C.
-4. Write `.hq/summary.md`: what was built (per task, one line), decisions and deviations from the spec with reasons (from the log), test results, follow-ups. Commit it with the last task or as `hq: summary`.
+4. Write `.hq/summary.md`: what was built (per task, one line), decisions and deviations from the spec with reasons (from the log), test results, follow-ups. Commit it with the last task or as `chore(hq): summary`.
 
 ## Gate 2 — human signs off
 Set phase=gate2. `herdr notification show "Feature ready" --body "<feature>: <N> tasks done" --sound done`. Post the summary in your pane. Ask: `ship`, `merge`, or changes.

@@ -39,9 +39,9 @@ assert_not_contains "$log" "--dangerously-skip-permissions" "ask mode has no fla
 mgr=$(grep '"agent","prompt","arch-manager"' <<<"$log")
 assert_not_contains "$mgr" '"--wait"' "manager prompt does not block hq"
 
-# trusted on hq/* branch → crew flags, never manager
+# trusted on the branch recorded in .hq/state → crew flags, never manager
 : >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.*; mkdir -p "$repo/.hq"; echo autonomy=trusted >"$repo/.hq/runtime"
-git -C "$repo" checkout -q -b hq/x
+git -C "$repo" checkout -q -b feat/x; echo branch=feat/x >"$repo/.hq/state"
 bin/hq team "$repo" "b" arch >/dev/null 2>&1; log=$(cat "$FAKE_HERDR_LOG")
 assert_contains "$log" '"arch-impl","--kind","cursor","--pane","w9:p' "impl started"
 assert_contains "$log" '"--force","--trust"' "cursor trusted flags"
@@ -63,6 +63,12 @@ rm -rf "$repo/.hq"
 out=$(bin/hq team --resume "$repo" 2>&1); assert_contains "$out" "nothing to resume" "resume without state"
 
 # resume
+# trusted, but on a branch other than the one in .hq/state → no flags for anyone
+: >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.*; echo branch=feat/other >"$repo/.hq/state"
+bin/hq team "$repo" "b" arch >/dev/null 2>&1; log=$(cat "$FAKE_HERDR_LOG")
+assert_not_contains "$log" '"--force","--trust"' "no trusted flags off the recorded branch"
+echo branch=feat/x >"$repo/.hq/state"
+
 : >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.*; mkdir -p "$repo/.hq"; echo phase=tasks >"$repo/.hq/state"
 bin/hq team --resume "$repo" arch >/dev/null 2>&1; log=$(cat "$FAKE_HERDR_LOG")
 assert_contains "$log" 'Mode: resume' "resume mode passed to manager"

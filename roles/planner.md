@@ -28,6 +28,8 @@ One file per task: `.hq/tasks/NN-short-slug.md` (NN = 01, 02, … in build order
 ```
 # Task NN: <title>
 Status: todo
+Type: feat|fix|chore|docs|refactor|perf|test   (the commit type for this task; the manager uses it)
+Scope: <module or area, e.g. api, auth, ui> | none
 Depends on: <NN, …> | none
 ## Goal
 ## Files
