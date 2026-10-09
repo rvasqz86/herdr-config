@@ -71,7 +71,6 @@ out=$(FAKE_STATUS=gone FAKE_STATUS_READS=1 FAKE_PANE_LABEL=arch-specrev FAKE_PAN
 assert_eq "$rc" 1 "ambiguous label outside the current workspace fails"
 assert_contains "$out" "2 panes are labelled arch-specrev" "ambiguous label message"
 
-out=$(bin/hq respawn arch-manager 2>&1); assert_contains "$out" "not the manager" "refuses manager"
 out=$(bin/hq respawn arch-bogus 2>&1); assert_contains "$out" "unknown role" "refuses unknown role"
 out=$(bin/hq respawn 2>&1); assert_contains "$out" "usage: hq respawn" "usage"
 rm -rf "$root"
@@ -87,7 +86,33 @@ assert_contains "$log" '"--add-dir"' "cto may read the roles dir"
 assert_not_contains "$log" '--auto-approve' "exec roles never get autonomy flags"
 assert_contains "$log" "roles/cto.md" "cto re-sent its role"
 assert_contains "$log" "until the CEO sends you" "cto told to wait for the CEO"
-out=$(bin/hq respawn acme-ceo 2>&1); rc=$?
-assert_eq "$rc" 1 "respawn ceo refused"
-assert_contains "$out" "hq exec --resume" "ceo refusal points to --resume"
+# the manager and the CEO can be restored after a herdr restart: fresh session, resume mode
+: >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.* "$FAKE_HERDR_LOG.paneget" "$FAKE_HERDR_LOG.proc"
+out=$(FAKE_STATUS=gone FAKE_STATUS_READS=1 FAKE_PANE_LABEL=arch-manager FAKE_PANE_EXTRA=runtime FAKE_CWD="$repo" bin/hq respawn arch-manager 2>&1); rc=$?
+log=$(cat "$FAKE_HERDR_LOG")
+assert_eq "$rc" 0 "respawn manager exits 0"
+assert_contains "$log" '"agent","start","arch-manager","--kind","claude","--pane","w9:p5"' "manager restarted in its labelled pane"
+assert_not_contains "$log" '--dangerously-skip-permissions' "manager never gets autonomy flags"
+mgr=$(grep '"agent","prompt","arch-manager"' <<<"$log")
+assert_contains "$mgr" "roles/manager.md" "manager re-sent its role"
+assert_contains "$mgr" "Mode: resume" "manager told to resume"
+assert_contains "$mgr" "Runtime pane: w9:p4" "manager told the runtime pane of its workspace"
+assert_contains "$mgr" "Team label: arch" "manager told its label"
+assert_not_contains "$mgr" '"--wait"' "manager prompt does not block hq"
+: >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.* "$FAKE_HERDR_LOG.paneget" "$FAKE_HERDR_LOG.proc"
+out=$(FAKE_STATUS=gone FAKE_STATUS_READS=1 FAKE_PANE_LABEL=arch-manager FAKE_CWD="$repo" bin/hq respawn arch-manager 2>&1); rc=$?
+assert_eq "$rc" 1 "manager respawn fails without a runtime pane"
+assert_contains "$out" "runtime" "manager respawn names the missing runtime pane"
+assert_not_contains "$(cat "$FAKE_HERDR_LOG")" '"agent","start"' "no manager start without a runtime pane"
+: >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.* "$FAKE_HERDR_LOG.paneget" "$FAKE_HERDR_LOG.proc"
+echo '# Brief' >"$co/company/brief.md"
+out=$(FAKE_STATUS=gone FAKE_STATUS_READS=1 FAKE_PANE_LABEL=acme-ceo FAKE_CWD="$co" bin/hq respawn acme-ceo 2>&1); rc=$?
+log=$(cat "$FAKE_HERDR_LOG")
+assert_eq "$rc" 0 "respawn ceo exits 0"
+assert_contains "$log" '"agent","start","acme-ceo","--kind","claude","--pane","w9:p5"' "ceo restarted in its labelled pane"
+ceo=$(grep '"agent","prompt","acme-ceo"' <<<"$log")
+assert_contains "$ceo" "roles/ceo.md" "ceo re-sent its role"
+assert_contains "$ceo" "Mode: resume" "ceo told to resume"
+assert_not_contains "$ceo" '"--wait"' "ceo prompt does not block hq"
+rm -rf "$root"
 finish

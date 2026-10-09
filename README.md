@@ -53,7 +53,7 @@ Run inside a herdr pane.
 | `hq team --resume <dir> [label]` | rebuild the team for an existing `.hq/` |
 | `hq exec <dir> ["<question>"] [label]` | CEO, CTO and COO for a startup: you ask, they write positions, the CEO decides and files a memo in `company/`; money, people and customer decisions wait for you |
 | `hq exec --resume <dir> [label]` | rebuild the management team for an existing `company/` |
-| `hq respawn <label>-<role>` | fresh session for a crew agent (team crew, or cto/coo) |
+| `hq respawn <label>-<role>` | fresh session for any team agent in its own pane; `manager` and `ceo` resume from the saved files, which restores a team after a herdr restart |
 | `hq new` | interactive picker (`ctrl+alt+n`) |
 
 ## Per-machine tools (`hq.local`)

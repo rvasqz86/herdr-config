@@ -22,9 +22,10 @@ case "$1 $2" in
     # FAKE_SCREEN is shown for the first FAKE_SCREEN_READS reads, then a ready prompt.
     r=$(( $(cat "$log.reads" 2>/dev/null || echo 0) + 1 )); echo "$r" >"$log.reads"
     if [ -n "${FAKE_SCREEN:-}" ] && [ "$r" -le "${FAKE_SCREEN_READS:-1}" ]; then echo "$FAKE_SCREEN"; else echo "> ready"; fi ;;
-  "pane list") jq -cn --arg c "${FAKE_CWD:-/tmp}" --arg l "${FAKE_PANE_LABEL:-}" --arg d "${FAKE_PANE_DUP:-}" \
+  "pane list") jq -cn --arg c "${FAKE_CWD:-/tmp}" --arg l "${FAKE_PANE_LABEL:-}" --arg d "${FAKE_PANE_DUP:-}" --arg x "${FAKE_PANE_EXTRA:-}" \
       '{result:{panes:((if $d == "" then [] else [{pane_id:"w1:p5",workspace_id:"w1",label:$l,cwd:$c}] end)
-                       + (if $l == "" then [] else [{pane_id:"w9:p5",workspace_id:"w9",label:$l,cwd:$c}] end))}}' ;;
+                       + (if $l == "" then [] else [{pane_id:"w9:p5",workspace_id:"w9",label:$l,cwd:$c}] end)
+                       + (if $x == "" then [] else [{pane_id:"w9:p4",workspace_id:"w9",label:$x,cwd:$c}] end))}}' ;;
   "pane get")
     # The pane still reports an agent for the first FAKE_PANE_BUSY_READS gets.
     b=$(( $(cat "$log.paneget" 2>/dev/null || echo 0) + 1 )); echo "$b" >"$log.paneget"

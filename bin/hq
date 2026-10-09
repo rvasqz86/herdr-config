@@ -8,7 +8,7 @@
 #   hq team --resume <dir> [label]   rebuild the team for an existing .hq/
 #   hq exec <dir> ["<question>"] [label]  CEO/CTO/COO for the startup in <dir> (see roles/ceo.md)
 #   hq exec --resume <dir> [label]   rebuild the management team for an existing company/
-#   hq respawn <label>-<role>        fresh session for a crew agent
+#   hq respawn <label>-<role>        fresh session for any team agent (manager/ceo resume from the files)
 #   <cmd> 2>&1 | hq runlog <file> [max]  tee with rotation (default max 20M)
 #   hq new                           interactive picker (bound to ctrl+alt+n)
 #
@@ -395,15 +395,16 @@ shell_idle() { # pane -> 0 when the shell itself is in the foreground
     jq -e '.result.process_info | .foreground_process_group_id == .shell_pid' >/dev/null
 }
 
+# A team's runtime pane: the one labelled "runtime" in the same workspace as <pane>.
+runtime_pane_of() { # pane -> pane id
+  herdr pane list | jq -r --arg w "${1%%:*}" '.result.panes[]? | select(.label == "runtime" and .workspace_id == $w) | .pane_id' | head -n 1
+}
+
 cmd_respawn() { # <label>-<role>
-  local name=${1:-} role label info pane dir pgid i
+  local name=${1:-} role label info pane dir pgid i runtime
   [ -n "$name" ] || die "usage: hq respawn <label>-<role>"
   role=${name##*-}; label=${name%-*}
-  case $role in
-    manager) die "respawn is for crew agents, not the manager" ;;
-    ceo) die "respawn is for crew agents; restart the CEO with: hq exec --resume <dir>" ;;
-  esac
-  role_kind "$role" >/dev/null || die "unknown role in '$name' (expected planner|specrev|impl|taskrev|cto|coo)"
+  role_kind "$role" >/dev/null || die "unknown role in '$name' (expected manager|planner|specrev|impl|taskrev|ceo|cto|coo)"
   if info=$(herdr agent get "$name" 2>/dev/null); then
     pane=$(jq -r '.result.agent.pane_id' <<<"$info")
     dir=$(jq -r '.result.agent.cwd' <<<"$info")
@@ -439,9 +440,19 @@ cmd_respawn() { # <label>-<role>
     [ "$i" = 20 ] && die "herdr still shows an agent in pane $pane"
     sleep "${HQ_POLL:-0.5}"
   done
+  # The manager needs its runtime pane; find it before touching anything.
+  if [ "$role" = manager ]; then
+    runtime=$(runtime_pane_of "$pane")
+    [ -n "$runtime" ] || die "no pane labelled runtime in the workspace of $name — close the workspace and run hq team --resume"
+  fi
   herdr pane run "$pane" clear >/dev/null   # drop the old session's text from the screen
   start_role "$label" "$role" "$pane" "$dir"
-  prompt_agent "$name" "$(team_prompt_crew "$role" "$dir")" || die "$name was restarted but did not take its role prompt"
+  # Leads resume from the files; their first turn is the whole pipeline, so no --wait.
+  case $role in
+    manager) prompt_agent "$name" "$(team_prompt_manager "$dir" "$label" "$runtime" resume "(resuming — read .hq/brief.md and .hq/state)")" --no-wait ;;
+    ceo) prompt_agent "$name" "$(exec_prompt_ceo "$dir" "$label" resume "")" --no-wait ;;
+    *) prompt_agent "$name" "$(team_prompt_crew "$role" "$dir")" ;;
+  esac || die "$name was restarted but did not take its role prompt"
 }
 
 cmd_runlog() { # <path> [max] — tee that keeps <path> + <path>.1, together about <max>
