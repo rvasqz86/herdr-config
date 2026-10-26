@@ -8,6 +8,7 @@
 #   hq team --resume <dir> [label]   rebuild the team for an existing .hq/
 #   hq exec <dir> ["<question>"] [label]  CEO/CTO/COO for the startup in <dir> (see roles/ceo.md)
 #   hq exec --resume <dir> [label]   rebuild the management team for an existing company/
+#   hq resume [dir]                  rebuild whichever team (team or exec) the folder has; default: here
 #   hq respawn <label>-<role>        fresh session for any team agent (manager/ceo resume from the files)
 #   <cmd> 2>&1 | hq runlog <file> [max]  tee with rotation (default max 20M)
 #   hq new                           interactive picker (bound to ctrl+alt+n)
@@ -404,6 +405,17 @@ runtime_pane_of() { # pane -> pane id
   herdr pane list | jq -r --arg w "${1%%:*}" '.result.panes[]? | select(.label == "runtime" and .workspace_id == $w) | .pane_id' | head -n 1
 }
 
+cmd_resume() { # [dir] — pick team or exec by what the folder holds
+  local dir team=0 exec=0
+  dir=$(abs_dir "${1:-.}") || die "no such directory: $1"
+  [ -f "$dir/.hq/state" ] && team=1
+  [ -f "$dir/company/brief.md" ] && exec=1
+  if [ $team = 1 ] && [ $exec = 1 ]; then die "$dir has both a team and a company; run hq team --resume or hq exec --resume"; fi
+  if [ $team = 1 ]; then cmd_team --resume "$dir"
+  elif [ $exec = 1 ]; then cmd_exec --resume "$dir"
+  else die "nothing to resume in $dir (no .hq/state or company/brief.md)"; fi
+}
+
 cmd_respawn() { # <label>-<role>
   local name=${1:-} role label info pane dir pgid i runtime
   [ -n "$name" ] || die "usage: hq respawn <label>-<role>"
@@ -502,6 +514,7 @@ main() {
     code|docs) run "$@" ;;
     team) shift; cmd_team "$@" ;;
     exec) shift; cmd_exec "$@" ;;
+    resume) shift; cmd_resume "$@" ;;
     respawn) shift; cmd_respawn "$@" ;;
     runlog) shift; cmd_runlog "$@" ;;
     new)

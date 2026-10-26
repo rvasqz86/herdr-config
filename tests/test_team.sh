@@ -72,6 +72,11 @@ echo branch=feat/x >"$repo/.hq/state"
 : >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.*; mkdir -p "$repo/.hq"; echo phase=tasks >"$repo/.hq/state"
 bin/hq team --resume "$repo" arch >/dev/null 2>&1; log=$(cat "$FAKE_HERDR_LOG")
 assert_contains "$log" 'Mode: resume' "resume mode passed to manager"
+# hq resume in the folder does the same
+: >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.*
+(cd "$repo" && "$OLDPWD/bin/hq" resume >/dev/null 2>&1); log=$(cat "$FAKE_HERDR_LOG")
+assert_contains "$log" 'Mode: resume' "hq resume in the folder rebuilds the team"
+out=$(cd "$root" && "$OLDPWD/bin/hq" resume 2>&1); assert_contains "$out" "nothing to resume" "hq resume names an empty folder"
 # role prompts only go to ready agents; all agents start before any prompt
 : >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.*; rm -rf "$repo/.hq"; git -C "$repo" symbolic-ref HEAD refs/heads/main
 bin/hq team "$repo" "b" arch >/dev/null 2>&1; log=$(cat "$FAKE_HERDR_LOG")
