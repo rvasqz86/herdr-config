@@ -171,7 +171,7 @@ start_role() { # label role pane dir
   model=$(model_for "$4" "$2")
   [ -z "$model" ] || case $kind in claude|omp|copilot|cursor) flags+=(--model "$model") ;; *) echo "hq: model_$2 ignored: no model flag known for $kind" >&2 ;; esac
   # Agents only read inside the project by default; the role files live in this repo.
-  case $kind in claude|omp|copilot|cursor) flags=(--add-dir "$ROLES_DIR") ;; esac
+  case $kind in claude|omp|copilot|cursor) flags+=(--add-dir "$ROLES_DIR") ;; esac
   if is_team_crew "$2"; then   # autonomy flags are a build-pipeline thing; exec roles always ask
     while IFS= read -r flag; do flags+=("$flag"); done < <(agent_flags "$kind" "$(runtime_get "$4" autonomy)" "$(current_branch "$4")" "$(conf_get "$4/.hq/state" branch)")
   fi
