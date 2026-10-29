@@ -98,6 +98,8 @@ For `hq team`, if more than one place sets a role's tool, the first of these win
 3. `kind_<role>` in this machine's `hq.local`
 4. the default
 
+To pin a model as well as the tool, add `model_<role>` (`model_manager`, `model_impl`, `model_ceo`, …) in any of the same places, or `HQ_MODEL_<role>` for one run (`HQ_MODEL_impl=sonnet hq team …`). The value is passed as `--model` to claude, omp, copilot and cursor, so use whatever name that tool accepts; leave it unset for the tool's own default. Other tools ignore it with a warning. It applies to team and exec roles, not yet to `hq code` / `hq docs`.
+
 Only Claude has been tried as the manager. Another tool should work if it can run shell commands that last up to 10 minutes.
 
 ## Per-company settings for `hq exec`

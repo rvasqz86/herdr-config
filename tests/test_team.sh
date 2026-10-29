@@ -125,6 +125,13 @@ done
 bin/hq team "$repo" "b" arch >/dev/null 2>&1; log=$(cat "$FAKE_HERDR_LOG")
 assert_contains "$log" '"agent","start","arch-impl","--kind","claude"' "kind override used for impl"
 assert_contains "$log" 'arch-impl (claude)' "manager told the real impl tool"
+# model pin: project file, and env beats it
+: >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.* "$FAKE_HERDR_LOG.reads"; printf 'kind_impl=claude\nmodel_impl=sonnet\n' >"$repo/.hq/runtime"
+bin/hq team "$repo" "b" arch >/dev/null 2>&1; log=$(cat "$FAKE_HERDR_LOG")
+assert_contains "$(grep '"agent","start","arch-impl"' <<<"$log")" '"--model","sonnet"' "model_impl passed as --model"
+: >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.* "$FAKE_HERDR_LOG.reads"
+HQ_MODEL_impl=opus bin/hq team "$repo" "b" arch >/dev/null 2>&1; log=$(cat "$FAKE_HERDR_LOG")
+assert_contains "$(grep '"agent","start","arch-impl"' <<<"$log")" '"--model","opus"' "HQ_MODEL env beats the project file"
 rm -rf "$repo/.hq"
 # a bad kind override fails before anything is built
 : >"$FAKE_HERDR_LOG"; rm -f "$FAKE_HERDR_LOG".get.*; mkdir -p "$repo/.hq"; echo kind_impl=cluade >"$repo/.hq/runtime"

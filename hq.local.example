@@ -21,3 +21,9 @@
 #kind_ceo=claude
 #kind_cto=omp
 #kind_coo=copilot
+
+# Pin a model per role (claude omp copilot cursor take --model; empty = the tool's default).
+# Same places as kind_*: .hq/runtime or company/settings override this file; HQ_MODEL_<role> overrides both.
+#model_manager=opus
+#model_impl=sonnet
+#model_ceo=opus

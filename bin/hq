@@ -91,6 +91,13 @@ kind_for() { # dir role -> tool
   echo "$k"
 }
 
+# Same order as kind_for; empty means the tool's own default model.
+model_for() { # dir role -> model or empty
+  local env="HQ_MODEL_$2" m
+  m=${!env:-$(conf_get "$(role_conf "$1" "$2")" "model_$2")}
+  echo "${m:-$(local_get "model_$2")}"
+}
+
 code_tools() { # -> 1 to 4 tools for hq code, from hq.local or the default
   local tools t n=0
   tools=$(local_get code_tools)
@@ -159,8 +166,10 @@ new_tab() { # ws dir label -> root pane id
 }
 
 start_role() { # label role pane dir
-  local kind flag flags=()
+  local kind model flag flags=()
   kind=$(kind_for "$4" "$2") || die "bad agent kind for $2"
+  model=$(model_for "$4" "$2")
+  [ -z "$model" ] || case $kind in claude|omp|copilot|cursor) flags+=(--model "$model") ;; *) echo "hq: model_$2 ignored: no model flag known for $kind" >&2 ;; esac
   # Agents only read inside the project by default; the role files live in this repo.
   case $kind in claude|omp|copilot|cursor) flags=(--add-dir "$ROLES_DIR") ;; esac
   if is_team_crew "$2"; then   # autonomy flags are a build-pipeline thing; exec roles always ask
